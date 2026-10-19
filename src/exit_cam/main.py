@@ -1,4 +1,5 @@
 import logging
+import math
 import sys
 import time
 from enum import Enum, auto
@@ -26,6 +27,7 @@ TRIGGER_GESTURE = "Victory"
 TRIGGER_THRESHOLD = 0.8  # confidence threshold for the trigger gesture
 FALLBACK_FPS = 30  # used when the camera does not report its frame rate
 REQUESTED_FPS = 30  # frame rate we ask the camera for (it may refuse)
+COUNTDOWN_SECONDS = 3
 
 # Keys
 KEY_CAPTURE = ord("c")
@@ -67,17 +69,38 @@ def open_camera():
     return cap
 
 
+def draw_centered_text(img, text, scale, thickness):
+    (text_width, text_height), _ = cv.getTextSize(text, FONT, scale, thickness)
+    x = (img.shape[1] - text_width) // 2
+    y = (img.shape[0] + text_height) // 2
+    cv.putText(img, text, (x, y), FONT, scale, WHITE, thickness)
+
+
 def capture_background(frame_reader):
-    print("Press 'c' to capture a frame")
+    started = None
 
     while True:
         frame = frame_reader.read()
-        cv.imshow("background", frame)
+        preview = frame.copy()
+
+        if started is not None:
+            now = time.perf_counter()
+            elapsed = now - started
+
+            remaining = math.ceil(COUNTDOWN_SECONDS - elapsed)
+            draw_centered_text(preview, str(remaining), 12, 5)
+
+            if elapsed > COUNTDOWN_SECONDS:
+                cv.destroyWindow("background")
+                return frame
+        else:
+            draw_centered_text(preview, "Press 'c' to start the countdown", 3, 1)
+
+        cv.imshow("background", preview)
 
         key = cv.waitKey(1) & 0xFF
-        if key == KEY_CAPTURE:
-            cv.destroyWindow("background")
-            return frame
+        if key == KEY_CAPTURE and started is None:
+            started = time.perf_counter()
 
 
 def draw_hand(img, landmarks):
