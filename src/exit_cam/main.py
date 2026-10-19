@@ -1,3 +1,4 @@
+import logging
 import sys
 import time
 from enum import Enum, auto
@@ -14,7 +15,7 @@ from mediapipe.tasks.python.vision import (
     RunningMode,
 )
 
-print("# EXIT CAM #")
+log = logging.getLogger(__name__)
 
 DISSOLVE_DURATION = 1  # seconds
 MODEL_PATH = Path(__file__).parent / "models" / "gesture_recognizer.task"
@@ -83,7 +84,7 @@ class HoldTimer:
 def open_camera():
     cap = cv.VideoCapture(0)
     if not cap.isOpened():
-        print("Cannot open camera")
+        log.error("Cannot open camera")
         sys.exit(1)
 
     cap.set(cv.CAP_PROP_FPS, REQUESTED_FPS)
@@ -94,14 +95,14 @@ def open_camera():
 def read_frame(cap):
     ret, frame = cap.read()
     if not ret:
-        print("Can't receive frame (stream end?). Exiting ...")
+        log.error("Can't receive frame (stream end?). Exiting ...")
         sys.exit(1)
 
     return frame
 
 
 def capture_background(cap):
-    print("Press 'c' to capture a frame:")
+    print("Press 'c' to capture a frame")
 
     while True:
         frame = read_frame(cap)
@@ -198,7 +199,7 @@ def draw_hud(img, is_sign, gesture_name, gesture_score, hold_progress):
 
 
 def run(cap, cam, recognizer, background):
-    print(f"Using virtual camera: {cam.device}")
+    log.info("Using virtual camera: %s", cam.device)
     last = time.perf_counter()
 
     state = State.LIVE
@@ -269,9 +270,15 @@ def run(cap, cam, recognizer, background):
 
 
 def main():
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+    )
+    log.info("# EXIT CAM #")
+
     if not MODEL_PATH.exists():
-        print(f"Model not found: {MODEL_PATH}")
-        print("Download it with the curl command listed in .gitignore")
+        log.error("Model not found: %s", MODEL_PATH)
+        log.error("Download it with the curl command listed in .gitignore")
         sys.exit(1)
 
     options = GestureRecognizerOptions(
@@ -285,8 +292,8 @@ def main():
         height = int(cap.get(cv.CAP_PROP_FRAME_HEIGHT))
         fps = cap.get(cv.CAP_PROP_FPS) or FALLBACK_FPS
 
-        print("Camera Resolution:", width, "x", height)
-        print("Camera FPS:", fps)
+        log.info("Camera Resolution: %s x %s", width, height)
+        log.info("Camera FPS: %s", fps)
 
         background = capture_background(cap)
 
@@ -294,7 +301,7 @@ def main():
             with pvm.Camera(width=width, height=height, fps=fps) as cam:
                 run(cap, cam, recognizer, background)
 
-        print("# DONE #")
+        log.info("# DONE #")
     finally:
         cap.release()
         cv.destroyAllWindows()
