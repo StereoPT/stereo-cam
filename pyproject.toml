@@ -1,0 +1,21 @@
+[project]
+name = "exit-cam"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "StereoPT", email = "stereopt@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "mediapipe>=1.1.1",
+    "numpy>=2.5.4",
+    "pyvirtualcam>=0.15.0",
+]
+
+[project.scripts]
+exit-cam = "exit_cam.main:main"
+
+[build-system]
+requires = ["uv_build>=0.13.1,<0.14.0"]
+build-backend = "uv_build"

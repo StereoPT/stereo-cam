@@ -1,6 +1,7 @@
 import sys
 import time
 from enum import Enum, auto
+from pathlib import Path
 import cv2 as cv
 import mediapipe as mp
 import pyvirtualcam as pvm
@@ -16,7 +17,7 @@ from mediapipe.tasks.python.vision import (
 print("# EXIT CAM #")
 
 DISSOLVE_DURATION = 1  # seconds
-MODEL_PATH = "./gesture_recognizer.task"
+MODEL_PATH = Path(__file__).parent / "models" / "gesture_recognizer.task"
 TRIGGER_GESTURE = "Victory"
 HOLD_DURATION = 0.5  # seconds the sign must be held
 HOLD_GRACE = 0.1  # seconds the sign may drop out without resetting the hold
@@ -268,8 +269,13 @@ def run(cap, cam, recognizer, background):
 
 
 def main():
+    if not MODEL_PATH.exists():
+        print(f"Model not found: {MODEL_PATH}")
+        print("Download it with the curl command listed in .gitignore")
+        sys.exit(1)
+
     options = GestureRecognizerOptions(
-        base_options=BaseOptions(model_asset_path=MODEL_PATH),
+        base_options=BaseOptions(model_asset_path=str(MODEL_PATH)),
         running_mode=RunningMode.VIDEO,
     )
     cap = open_camera()
