@@ -20,6 +20,7 @@ log = logging.getLogger(__name__)
 DISSOLVE_DURATION = 1  # seconds
 MODEL_PATH = Path(__file__).parent / "models" / "gesture_recognizer.task"
 TRIGGER_GESTURE = "Victory"
+TRIGGER_THRESHOLD = 0.8  # confidence threshold for the trigger gesture
 HOLD_DURATION = 0.5  # seconds the sign must be held
 HOLD_GRACE = 0.1  # seconds the sign may drop out without resetting the hold
 FALLBACK_FPS = 30  # used when the camera does not report its frame rate
@@ -244,7 +245,9 @@ def run(cap, cam, recognizer, background):
             landmarks = gesture_recognition_result.hand_landmarks
             top = top_gesture(gesture_recognition_result)
 
-            is_sign = top["name"] == TRIGGER_GESTURE
+            is_sign = (
+                top["name"] == TRIGGER_GESTURE and top["score"] >= TRIGGER_THRESHOLD
+            )
             hold_progress = hold_timer.update(is_sign, now)
             if hold_progress >= 1.0:
                 state = State.DISSOLVING
