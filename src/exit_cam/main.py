@@ -15,14 +15,15 @@ from mediapipe.tasks.python.vision import (
     RunningMode,
 )
 
+from .frame_reader import CameraError, FrameReader
+from .hold_timer import HoldTimer
+
 log = logging.getLogger(__name__)
 
 DISSOLVE_DURATION = 1  # seconds
 MODEL_PATH = Path(__file__).parent / "models" / "gesture_recognizer.task"
 TRIGGER_GESTURE = "Victory"
 TRIGGER_THRESHOLD = 0.8  # confidence threshold for the trigger gesture
-HOLD_DURATION = 0.5  # seconds the sign must be held
-HOLD_GRACE = 0.1  # seconds the sign may drop out without resetting the hold
 FALLBACK_FPS = 30  # used when the camera does not report its frame rate
 REQUESTED_FPS = 30  # frame rate we ask the camera for (it may refuse)
 
@@ -55,33 +56,6 @@ class State(Enum):
     GONE = auto()
 
 
-class HoldTimer:
-    """Tracks how long a sign has been held, forgiving brief dropouts."""
-
-    def __init__(self, duration=HOLD_DURATION, grace=HOLD_GRACE):
-        self.duration = duration
-        self.grace = grace
-        self.reset()
-
-    def reset(self):
-        self.held_since = None
-        self.last_seen = None
-
-    def update(self, is_held, now):
-        """Feed one frame's result. Returns the hold progress from 0.0 to 1.0."""
-        if is_held:
-            if self.held_since is None:
-                self.held_since = now
-            self.last_seen = now
-        elif self.held_since is not None and now - self.last_seen > self.grace:
-            self.reset()
-
-        if self.held_since is None:
-            return 0.0
-
-        return min(1.0, (now - self.held_since) / self.duration)
-
-
 def open_camera():
     cap = cv.VideoCapture(0)
     if not cap.isOpened():
@@ -93,21 +67,11 @@ def open_camera():
     return cap
 
 
-def read_frame(cap):
-    ret, frame = cap.read()
-    if not ret:
-        log.error("Can't receive frame (stream end?). Exiting ...")
-        sys.exit(1)
-
-    return frame
-
-
-def capture_background(cap):
+def capture_background(frame_reader):
     print("Press 'c' to capture a frame")
 
     while True:
-        frame = read_frame(cap)
-
+        frame = frame_reader.read()
         cv.imshow("background", frame)
 
         key = cv.waitKey(1) & 0xFF
@@ -199,7 +163,7 @@ def draw_hud(img, is_sign, gesture_name, gesture_score, hold_progress):
     )
 
 
-def run(cap, cam, recognizer, background):
+def run(frame_reader, cam, recognizer, background):
     log.info("Using virtual camera: %s", cam.device)
     last = time.perf_counter()
 
@@ -222,7 +186,7 @@ def run(cap, cam, recognizer, background):
                 else FPS_SMOOTHING * fps_display + (1 - FPS_SMOOTHING) * instant_fps
             )
 
-        frame = read_frame(cap)
+        frame = frame_reader.read()
 
         if state == State.DISSOLVING:
             dissolve_timer = max(0, dissolve_timer - dt)
@@ -289,6 +253,7 @@ def main():
         running_mode=RunningMode.VIDEO,
     )
     cap = open_camera()
+    frame_reader = FrameReader(cap)
 
     try:
         width = int(cap.get(cv.CAP_PROP_FRAME_WIDTH))
@@ -298,13 +263,16 @@ def main():
         log.info("Camera Resolution: %s x %s", width, height)
         log.info("Camera FPS: %s", fps)
 
-        background = capture_background(cap)
+        background = capture_background(frame_reader)
 
         with GestureRecognizer.create_from_options(options) as recognizer:  # noqa: SIM117
             with pvm.Camera(width=width, height=height, fps=fps) as cam:
-                run(cap, cam, recognizer, background)
+                run(frame_reader, cam, recognizer, background)
 
         log.info("# DONE #")
+    except CameraError as error:
+        log.error("%s. Exiting ...", error)
+        sys.exit(1)
     finally:
         cap.release()
         cv.destroyAllWindows()
