@@ -2,14 +2,14 @@ import sys
 import time
 from enum import Enum, auto
 from pathlib import Path
+
 import cv2 as cv
 import mediapipe as mp
 import pyvirtualcam as pvm
-
 from mediapipe.tasks.python import BaseOptions
 from mediapipe.tasks.python.vision import (
-    GestureRecognizerOptions,
     GestureRecognizer,
+    GestureRecognizerOptions,
     HandLandmarksConnections,
     RunningMode,
 )
@@ -290,7 +290,7 @@ def main():
 
         background = capture_background(cap)
 
-        with GestureRecognizer.create_from_options(options) as recognizer:
+        with GestureRecognizer.create_from_options(options) as recognizer:  # noqa: SIM117
             with pvm.Camera(width=width, height=height, fps=fps) as cam:
                 run(cap, cam, recognizer, background)
 
