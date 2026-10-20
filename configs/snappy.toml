@@ -1,0 +1,5 @@
+# Quick and eager: fires fast and fades fast. More chance of false triggers.
+hold_duration = 0.3
+hold_grace = 0.05
+dissolve_duration = 0.4
+trigger_threshold = 0.7

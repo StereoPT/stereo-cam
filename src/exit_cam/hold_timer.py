@@ -1,11 +1,9 @@
-HOLD_DURATION = 0.5  # seconds the sign must be held
-HOLD_GRACE = 0.1  # seconds the sign may drop out without resetting the hold
-
-
 class HoldTimer:
     """Tracks how long a sign has been held, forgiving brief dropouts."""
 
-    def __init__(self, duration=HOLD_DURATION, grace=HOLD_GRACE):
+    def __init__(self, duration, grace):
+        """duration: seconds the sign must be held. grace: seconds it may drop
+        out without resetting the hold."""
         self.duration = duration
         self.grace = grace
         self.reset()

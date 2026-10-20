@@ -1,0 +1,13 @@
+# The built-in defaults. Every setting is optional: leave one out and it
+# keeps this value.
+trigger_gesture = "Victory"   # Closed_Fist, Open_Palm, Pointing_Up, Thumb_Down, Thumb_Up, Victory, ILoveYou
+trigger_threshold = 0.8       # minimum confidence, 0 to 1
+
+hold_duration = 0.5           # seconds the sign must be held
+hold_grace = 0.1              # seconds the sign may drop out without resetting the hold
+
+dissolve_duration = 1.0       # seconds the fade takes
+
+requested_fps = 30            # frame rate asked of the camera (it may refuse)
+camera_index = 0
+countdown_seconds = 3         # capture countdown

@@ -1,3 +1,4 @@
+import argparse
 import logging
 import math
 import sys
@@ -15,6 +16,7 @@ from mediapipe.tasks.python.vision import (
     RunningMode,
 )
 
+from .config import Config, ConfigError, load_config
 from .drawing import HUD, draw_centered_text, draw_hand
 from .frame_reader import CameraError, FrameReader
 from .gestures import hand_gestures, is_trigger_sign
@@ -22,11 +24,8 @@ from .hold_timer import HoldTimer
 
 log = logging.getLogger(__name__)
 
-DISSOLVE_DURATION = 1  # seconds
 MODEL_PATH = Path(__file__).parent / "models" / "gesture_recognizer.task"
 FALLBACK_FPS = 30  # used when the camera does not report its frame rate
-REQUESTED_FPS = 30  # frame rate we ask the camera for (it may refuse)
-COUNTDOWN_SECONDS = 3
 MAX_HANDS = 2  # hands the recognizer tracks, and the gesture lines the HUD shows
 
 # Keys
@@ -43,18 +42,18 @@ class State(Enum):
     GONE = auto()
 
 
-def open_camera():
-    cap = cv.VideoCapture(0)
+def open_camera(index, requested_fps):
+    cap = cv.VideoCapture(index)
     if not cap.isOpened():
         log.error("Cannot open camera")
         sys.exit(1)
 
-    cap.set(cv.CAP_PROP_FPS, REQUESTED_FPS)
+    cap.set(cv.CAP_PROP_FPS, requested_fps)
 
     return cap
 
 
-def capture_background(frame_reader):
+def capture_background(frame_reader, countdown_seconds):
     started = None
 
     while True:
@@ -65,10 +64,10 @@ def capture_background(frame_reader):
             now = time.perf_counter()
             elapsed = now - started
 
-            remaining = math.ceil(COUNTDOWN_SECONDS - elapsed)
+            remaining = math.ceil(countdown_seconds - elapsed)
             draw_centered_text(preview, str(remaining), 12, 5)
 
-            if elapsed > COUNTDOWN_SECONDS:
+            if elapsed > countdown_seconds:
                 cv.destroyWindow("background")
                 return frame
         else:
@@ -81,16 +80,16 @@ def capture_background(frame_reader):
             started = time.perf_counter()
 
 
-def run(frame_reader, cam, recognizer, background):
+def run(frame_reader, cam, recognizer, background, config):
     hud = HUD(MAX_HANDS)
     log.info("Using virtual camera: %s", cam.device)
     last = time.perf_counter()
 
     state = State.LIVE
-    dissolve_timer = DISSOLVE_DURATION
+    dissolve_timer = config.dissolve_duration
     dissolve_direction = 1
 
-    hold_timer = HoldTimer()
+    hold_timer = HoldTimer(config.hold_duration, config.hold_grace)
     fps_display = 0.0
 
     while True:
@@ -110,17 +109,19 @@ def run(frame_reader, cam, recognizer, background):
 
         if state == State.DISSOLVING:
             dissolve_timer = min(
-                DISSOLVE_DURATION,
+                config.dissolve_duration,
                 max(0, dissolve_timer - dt * dissolve_direction),
             )
             if dissolve_direction == 1 and dissolve_timer == 0:
                 state = State.GONE
                 dissolve_direction = -1
-            elif dissolve_direction == -1 and dissolve_timer == DISSOLVE_DURATION:
+            elif (
+                dissolve_direction == -1 and dissolve_timer == config.dissolve_duration
+            ):
                 state = State.LIVE
                 dissolve_direction = 1
 
-        live_weight = dissolve_timer / DISSOLVE_DURATION
+        live_weight = dissolve_timer / config.dissolve_duration
         output = cv.addWeighted(frame, live_weight, background, 1 - live_weight, 0)
         debug_output = output.copy()
 
@@ -136,7 +137,9 @@ def run(frame_reader, cam, recognizer, background):
             landmarks = gesture_recognition_result.hand_landmarks
             gestures = hand_gestures(gesture_recognition_result)
 
-            is_sign = is_trigger_sign(gestures)
+            is_sign = is_trigger_sign(
+                gestures, config.trigger_gesture, config.trigger_threshold
+            )
             hold_progress = hold_timer.update(is_sign, now)
             if hold_progress >= 1.0:
                 state = State.DISSOLVING
@@ -144,7 +147,6 @@ def run(frame_reader, cam, recognizer, background):
 
             draw_hand(debug_output, landmarks)
 
-        hud.draw_hud()
         hud.draw(debug_output, fps_display, state, gestures, hold_progress)
         cv.imshow("frame", debug_output)
 
@@ -154,7 +156,7 @@ def run(frame_reader, cam, recognizer, background):
         key = cv.waitKey(1) & 0xFF
         if key == KEY_RESET:
             state = State.LIVE
-            dissolve_timer = DISSOLVE_DURATION
+            dissolve_timer = config.dissolve_duration
             dissolve_direction = 1
             hold_timer.reset()
         elif key == KEY_QUIT:
@@ -168,6 +170,17 @@ def main():
     )
     log.info("# EXIT CAM #")
 
+    parser = argparse.ArgumentParser(description="Dissolve your webcam on a hand sign.")
+    parser.add_argument("--config", help="path to a TOML settings file")
+    args = parser.parse_args()
+
+    try:
+        config = load_config(args.config) if args.config else Config()
+    except ConfigError as error:
+        log.error("%s", error)
+        sys.exit(1)
+    log.info("Config: %s", config)
+
     if not MODEL_PATH.exists():
         log.error("Model not found: %s", MODEL_PATH)
         log.error("Download it with the curl command listed in .gitignore")
@@ -178,7 +191,7 @@ def main():
         running_mode=RunningMode.VIDEO,
         num_hands=MAX_HANDS,
     )
-    cap = open_camera()
+    cap = open_camera(config.camera_index, config.requested_fps)
     frame_reader = FrameReader(cap)
 
     try:
@@ -189,11 +202,11 @@ def main():
         log.info("Camera Resolution: %s x %s", width, height)
         log.info("Camera FPS: %s", fps)
 
-        background = capture_background(frame_reader)
+        background = capture_background(frame_reader, config.countdown_seconds)
 
         with GestureRecognizer.create_from_options(options) as recognizer:  # noqa: SIM117
             with pvm.Camera(width=width, height=height, fps=fps) as cam:
-                run(frame_reader, cam, recognizer, background)
+                run(frame_reader, cam, recognizer, background, config)
 
         log.info("# DONE #")
     except CameraError as error:
