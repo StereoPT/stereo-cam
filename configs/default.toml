@@ -11,3 +11,5 @@ dissolve_duration = 1.0       # seconds the fade takes
 requested_fps = 30            # frame rate asked of the camera (it may refuse)
 camera_index = 0
 countdown_seconds = 3         # capture countdown
+
+mask_threshold = 25           # how different from the background counts as you, 0 to 255
