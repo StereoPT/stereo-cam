@@ -72,21 +72,21 @@ def _panel_alpha(width, height, radius):
 
 
 class HUD:
-    """The on-screen panel: FPS, then while live (gestures is not None) the
+    """The on-screen panel: FPS and processing time, then while live (gestures is not None) the
     gesture rows and hold bar, then the state label as the last line. A
     separator line sits under the FPS and above the state."""
 
     def __init__(self, max_hands):
         self.max_hands = max_hands  # gesture lines to show, one per possible hand
 
-    def draw(self, img, fps, state, gestures, hold_progress):
+    def draw(self, img, fps, latency_ms, state, gestures, hold_progress):
         live = gestures is not None
         height = FPS_ROW_HEIGHT + STATE_ROW_HEIGHT
         if live:
             height += LIVE_ROWS_HEIGHT
 
         self._draw_panel(img, height)
-        self._draw_fps(img, fps)
+        self._draw_fps(img, fps, latency_ms)
         self._draw_separators(img, height)
         if live:
             self._draw_gestures(img, gestures)
@@ -102,9 +102,9 @@ class HUD:
         alpha = alpha[: area.shape[0], : area.shape[1]]
         area[:] = area * (1 - alpha) + np.array(PANEL_COLOR, np.float32) * alpha
 
-    def _draw_fps(self, img, fps):
+    def _draw_fps(self, img, fps, latency_ms):
         pos = (PANEL_POS[0] + FPS_TEXT_POS[0], PANEL_POS[1] + FPS_TEXT_POS[1])
-        cv.putText(img, f"{fps:.0f} FPS", pos, FONT, 1, WHITE, 2)
+        cv.putText(img, f"{fps:.0f} FPS  {latency_ms:.0f} ms", pos, FONT, 1, WHITE, 2)
 
     def _draw_separators(self, img, height):
         """Under the FPS and above the state (the same line when not live)."""

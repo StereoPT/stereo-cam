@@ -36,6 +36,14 @@ KEY_QUIT = ord("q")
 FPS_SMOOTHING = 0.9  # closer to 1 = steadier but slower to react
 
 
+def smooth(smoothed, value):
+    """Blend a new measurement into a running average (0.0 means no average yet)."""
+    if smoothed == 0.0:
+        return value
+
+    return FPS_SMOOTHING * smoothed + (1 - FPS_SMOOTHING) * value
+
+
 class State(Enum):
     LIVE = auto()
     DISSOLVING = auto()
@@ -91,6 +99,7 @@ def run(frame_reader, cam, recognizer, background, config):
 
     hold_timer = HoldTimer(config.hold_duration, config.hold_grace)
     fps_display = 0.0
+    latency_display = 0.0  # ms of our own processing per frame
 
     while True:
         now = time.perf_counter()
@@ -98,14 +107,10 @@ def run(frame_reader, cam, recognizer, background, config):
         last = now
 
         if dt > 0:
-            instant_fps = 1 / dt
-            fps_display = (
-                instant_fps
-                if fps_display == 0.0
-                else FPS_SMOOTHING * fps_display + (1 - FPS_SMOOTHING) * instant_fps
-            )
+            fps_display = smooth(fps_display, 1 / dt)
 
         frame = frame_reader.read()
+        frame_read_at = time.perf_counter()
 
         if state == State.DISSOLVING:
             dissolve_timer = min(
@@ -147,10 +152,16 @@ def run(frame_reader, cam, recognizer, background, config):
 
             draw_hand(debug_output, landmarks)
 
-        hud.draw(debug_output, fps_display, state, gestures, hold_progress)
+        hud.draw(
+            debug_output, fps_display, latency_display, state, gestures, hold_progress
+        )
         cv.imshow("frame", debug_output)
 
         cam.send(cv.cvtColor(output, cv.COLOR_BGR2RGB))
+        # Measured before the deliberate wait, so it isn't counted as lag. It
+        # reaches the HUD one frame late, which is fine for a smoothed number.
+        processing_ms = (time.perf_counter() - frame_read_at) * 1000
+        latency_display = smooth(latency_display, processing_ms)
         cam.sleep_until_next_frame()
 
         key = cv.waitKey(1) & 0xFF
