@@ -1,4 +1,3 @@
-import functools
 import logging
 import math
 import sys
@@ -8,16 +7,15 @@ from pathlib import Path
 
 import cv2 as cv
 import mediapipe as mp
-import numpy as np
 import pyvirtualcam as pvm
 from mediapipe.tasks.python import BaseOptions
 from mediapipe.tasks.python.vision import (
     GestureRecognizer,
     GestureRecognizerOptions,
-    HandLandmarksConnections,
     RunningMode,
 )
 
+from .drawing import HUD, draw_centered_text, draw_hand
 from .frame_reader import CameraError, FrameReader
 from .hold_timer import HoldTimer
 
@@ -37,33 +35,6 @@ KEY_CAPTURE = ord("c")
 KEY_RESET = ord("r")
 KEY_QUIT = ord("q")
 
-# Colours (BGR)
-WHITE = (255, 255, 255)
-GREEN = (0, 255, 0)
-
-# Preview drawing (pixels)
-FONT = cv.FONT_HERSHEY_SIMPLEX
-LANDMARK_RADIUS = 8
-PANEL_POS = (10, 10)  # margin from the top-left corner
-PANEL_WIDTH = 320
-# The panel's height is these rows added up: FPS, then (only while live) the
-# gesture rows and hold bar, then the state label at the bottom.
-FPS_ROW_HEIGHT = 54
-LIVE_ROWS_HEIGHT = 121
-STATE_ROW_HEIGHT = 53
-PANEL_RADIUS = 14  # corner roundness
-PANEL_COLOR = (20, 20, 20)
-PANEL_ALPHA = 0.6  # 0 = invisible, 1 = solid
-SEPARATOR_COLOR = (200, 200, 200)
-SEPARATOR_MARGIN = 10  # how far the separator lines stop short of the panel edges
-# Positions inside the panel, relative to its top-left corner
-FPS_TEXT_POS = (10, 30)
-GESTURE_TEXT_POS = (10, 92)
-GESTURE_LINE_HEIGHT = 35  # gap between the lines of two hands
-BAR_X, BAR_Y, BAR_H = 10, 145, 14
-BAR_W = PANEL_WIDTH - 2 * BAR_X  # full width, with the same margin on both sides
-STATE_LABEL_X = 10
-STATE_LABEL_BOTTOM_MARGIN = 15  # from the bottom edge of the panel
 FPS_SMOOTHING = 0.9  # closer to 1 = steadier but slower to react
 
 
@@ -82,13 +53,6 @@ def open_camera():
     cap.set(cv.CAP_PROP_FPS, REQUESTED_FPS)
 
     return cap
-
-
-def draw_centered_text(img, text, scale, thickness):
-    (text_width, text_height), _ = cv.getTextSize(text, FONT, scale, thickness)
-    x = (img.shape[1] - text_width) // 2
-    y = (img.shape[0] + text_height) // 2
-    cv.putText(img, text, (x, y), FONT, scale, WHITE, thickness)
 
 
 def capture_background(frame_reader):
@@ -118,24 +82,6 @@ def capture_background(frame_reader):
             started = time.perf_counter()
 
 
-def draw_hand(img, landmarks):
-    if not landmarks:
-        return
-
-    img_width = img.shape[1]
-    img_height = img.shape[0]
-
-    for landmark in landmarks:
-        points = [(int(p.x * img_width), int(p.y * img_height)) for p in landmark]
-        for connection in HandLandmarksConnections.HAND_CONNECTIONS:
-            start = points[connection.start]
-            end = points[connection.end]
-            cv.line(img, start, end, WHITE, 2)
-
-        for point in points:
-            cv.circle(img, point, LANDMARK_RADIUS, GREEN, -1)
-
-
 def hand_gestures(result):
     """The top gesture of every detected hand, as a list of name and score."""
     return [
@@ -153,91 +99,8 @@ def is_trigger_sign(gestures):
     )
 
 
-@functools.cache
-def panel_alpha(width, height, radius):
-    """How opaque the panel is at every pixel: rounded, with soft edges."""
-    mask = np.zeros((height, width), np.uint8)
-    cv.rectangle(mask, (radius, 0), (width - radius - 1, height - 1), 255, -1)
-    cv.rectangle(mask, (0, radius), (width - 1, height - radius - 1), 255, -1)
-    for corner_x in (radius, width - radius - 1):
-        for corner_y in (radius, height - radius - 1):
-            cv.circle(mask, (corner_x, corner_y), radius, 255, -1, cv.LINE_AA)
-
-    return (mask / 255.0 * PANEL_ALPHA).astype(np.float32)[:, :, None]
-
-
-def draw_panel(img, height):
-    """Darken a rounded rectangle of the image, so text on it stays readable."""
-    x, y = PANEL_POS
-    area = img[y : y + height, x : x + PANEL_WIDTH]
-    # an image smaller than the panel just gets a clipped panel
-    alpha = panel_alpha(PANEL_WIDTH, height, PANEL_RADIUS)
-    alpha = alpha[: area.shape[0], : area.shape[1]]
-    area[:] = area * (1 - alpha) + np.array(PANEL_COLOR, np.float32) * alpha
-
-
-def draw_hud(img, fps, state, gestures, hold_progress):
-    """Draw the HUD: FPS, then while live (gestures is not None) the gesture
-    rows and hold bar, then the state label as the last line. A separator
-    line sits under the FPS and above the state."""
-    live = gestures is not None
-    height = FPS_ROW_HEIGHT + STATE_ROW_HEIGHT
-    if live:
-        height += LIVE_ROWS_HEIGHT
-    draw_panel(img, height)
-    panel_x, panel_y = PANEL_POS
-
-    ## FPS
-    fps_pos = (panel_x + FPS_TEXT_POS[0], panel_y + FPS_TEXT_POS[1])
-    cv.putText(img, f"{fps:.0f} FPS", fps_pos, FONT, 1, WHITE, 2)
-
-    ## Separators (when not live they are the same line)
-    line_left = panel_x + SEPARATOR_MARGIN
-    line_right = panel_x + PANEL_WIDTH - SEPARATOR_MARGIN
-    for offset in (FPS_ROW_HEIGHT, height - STATE_ROW_HEIGHT):
-        line_y = panel_y + offset
-        cv.line(img, (line_left, line_y), (line_right, line_y), SEPARATOR_COLOR, 1)
-
-    if live:
-        ## Gesture Text (one line per possible hand)
-        text_x = panel_x + GESTURE_TEXT_POS[0]
-        text_y = panel_y + GESTURE_TEXT_POS[1]
-        for i in range(MAX_HANDS):
-            if i < len(gestures):
-                line = f"{gestures[i]['name']}: {gestures[i]['score']:.2f}"
-            else:
-                line = "Hand not showing"
-            cv.putText(
-                img,
-                line,
-                (text_x, text_y + i * GESTURE_LINE_HEIGHT),
-                FONT,
-                1,
-                WHITE,
-                2,
-            )
-
-        ## Gesture Bar
-        bar_x = panel_x + BAR_X
-        bar_y = panel_y + BAR_Y
-        cv.rectangle(img, (bar_x, bar_y), (bar_x + BAR_W, bar_y + BAR_H), WHITE, 1)
-        cv.rectangle(
-            img,
-            (bar_x, bar_y),
-            (bar_x + int(BAR_W * hold_progress), bar_y + BAR_H),
-            GREEN,
-            -1,
-        )
-
-    ## State (always the last line)
-    state_pos = (
-        panel_x + STATE_LABEL_X,
-        panel_y + height - STATE_LABEL_BOTTOM_MARGIN,
-    )
-    cv.putText(img, state.name, state_pos, FONT, 1, WHITE, 2)
-
-
 def run(frame_reader, cam, recognizer, background):
+    hud = HUD(MAX_HANDS)
     log.info("Using virtual camera: %s", cam.device)
     last = time.perf_counter()
 
@@ -299,7 +162,8 @@ def run(frame_reader, cam, recognizer, background):
 
             draw_hand(debug_output, landmarks)
 
-        draw_hud(debug_output, fps_display, state, gestures, hold_progress)
+        hud.draw_hud()
+        hud.draw(debug_output, fps_display, state, gestures, hold_progress)
         cv.imshow("frame", debug_output)
 
         cam.send(cv.cvtColor(output, cv.COLOR_BGR2RGB))
