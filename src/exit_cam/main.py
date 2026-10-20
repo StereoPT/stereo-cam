@@ -243,6 +243,7 @@ def run(frame_reader, cam, recognizer, background):
 
     state = State.LIVE
     dissolve_timer = DISSOLVE_DURATION
+    dissolve_direction = 1
 
     hold_timer = HoldTimer()
     fps_display = 0.0
@@ -263,19 +264,24 @@ def run(frame_reader, cam, recognizer, background):
         frame = frame_reader.read()
 
         if state == State.DISSOLVING:
-            dissolve_timer = max(0, dissolve_timer - dt)
-            if dissolve_timer == 0:
+            dissolve_timer = min(
+                DISSOLVE_DURATION,
+                max(0, dissolve_timer - dt * dissolve_direction),
+            )
+            if dissolve_direction == 1 and dissolve_timer == 0:
                 state = State.GONE
+                dissolve_direction = -1
+            elif dissolve_direction == -1 and dissolve_timer == DISSOLVE_DURATION:
+                state = State.LIVE
+                dissolve_direction = 1
 
         live_weight = dissolve_timer / DISSOLVE_DURATION
         output = cv.addWeighted(frame, live_weight, background, 1 - live_weight, 0)
         debug_output = output.copy()
 
-        # Detection only matters while we are still live; once the exit has
-        # started there is nothing left to watch for.
-        gestures = None  # stays None unless we are live
+        gestures = None
         hold_progress = 0.0
-        if state == State.LIVE:
+        if state in (State.LIVE, State.GONE):
             rgb_frame = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
             mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
             gesture_recognition_result = recognizer.recognize_for_video(
@@ -303,6 +309,7 @@ def run(frame_reader, cam, recognizer, background):
         if key == KEY_RESET:
             state = State.LIVE
             dissolve_timer = DISSOLVE_DURATION
+            dissolve_direction = 1
             hold_timer.reset()
         elif key == KEY_QUIT:
             break
