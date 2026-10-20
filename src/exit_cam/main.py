@@ -17,14 +17,13 @@ from mediapipe.tasks.python.vision import (
 
 from .drawing import HUD, draw_centered_text, draw_hand
 from .frame_reader import CameraError, FrameReader
+from .gestures import hand_gestures, is_trigger_sign
 from .hold_timer import HoldTimer
 
 log = logging.getLogger(__name__)
 
 DISSOLVE_DURATION = 1  # seconds
 MODEL_PATH = Path(__file__).parent / "models" / "gesture_recognizer.task"
-TRIGGER_GESTURE = "Victory"
-TRIGGER_THRESHOLD = 0.8  # confidence threshold for the trigger gesture
 FALLBACK_FPS = 30  # used when the camera does not report its frame rate
 REQUESTED_FPS = 30  # frame rate we ask the camera for (it may refuse)
 COUNTDOWN_SECONDS = 3
@@ -80,23 +79,6 @@ def capture_background(frame_reader):
         key = cv.waitKey(1) & 0xFF
         if key == KEY_CAPTURE and started is None:
             started = time.perf_counter()
-
-
-def hand_gestures(result):
-    """The top gesture of every detected hand, as a list of name and score."""
-    return [
-        {"name": hand[0].category_name, "score": hand[0].score}
-        for hand in result.gestures
-        if hand
-    ]
-
-
-def is_trigger_sign(gestures):
-    """True when either hand makes the trigger sign with enough confidence."""
-    return any(
-        gesture["name"] == TRIGGER_GESTURE and gesture["score"] >= TRIGGER_THRESHOLD
-        for gesture in gestures
-    )
 
 
 def run(frame_reader, cam, recognizer, background):
