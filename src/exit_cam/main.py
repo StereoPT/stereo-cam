@@ -21,7 +21,6 @@ from .drawing import HUD, draw_centered_text, draw_hand
 from .frame_reader import CameraError, FrameReader
 from .gestures import hand_gestures, is_trigger_sign
 from .hold_timer import HoldTimer
-from .mask import compute_mask, grayscale_and_blur, make_kernel
 
 log = logging.getLogger(__name__)
 
@@ -102,9 +101,6 @@ def run(frame_reader, cam, recognizer, background, config):
     fps_display = 0.0
     latency_display = 0.0  # ms of our own processing per frame
 
-    gray_background = grayscale_and_blur(background)
-    kernel = make_kernel()
-
     while True:
         now = time.perf_counter()
         dt = now - last
@@ -115,9 +111,6 @@ def run(frame_reader, cam, recognizer, background, config):
 
         frame = frame_reader.read()
         frame_read_at = time.perf_counter()
-
-        mask = compute_mask(frame, gray_background, config.mask_threshold, kernel)
-        cv.imshow("mask", mask)
 
         if state == State.DISSOLVING:
             dissolve_timer = min(

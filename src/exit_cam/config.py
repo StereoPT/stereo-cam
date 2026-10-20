@@ -55,8 +55,6 @@ class Config:
     camera_index: int = 0
     countdown_seconds: int = 3
 
-    mask_threshold: int = 25  # how different from the background counts as you
-
     def __post_init__(self):
         if self.trigger_gesture not in GESTURE_NAMES:
             raise ConfigError(
@@ -69,8 +67,6 @@ class Config:
             raise ConfigError("hold_duration must be greater than 0")
         if self.dissolve_duration <= 0:
             raise ConfigError("dissolve_duration must be greater than 0")
-        if not 0 <= self.mask_threshold <= 255:
-            raise ConfigError("mask_threshold must be between 0 and 255")
         if self.hold_grace < 0:
             raise ConfigError("hold_grace can't be negative")
         if self.requested_fps <= 0:
