@@ -8,7 +8,6 @@ from pathlib import Path
 
 import cv2 as cv
 import mediapipe as mp
-import numpy as np
 import pyvirtualcam as pvm
 from mediapipe.tasks.python import BaseOptions
 from mediapipe.tasks.python.vision import (
@@ -19,6 +18,7 @@ from mediapipe.tasks.python.vision import (
 
 from .config import Config, ConfigError, load_config
 from .drawing import HUD, draw_centered_text, draw_hand
+from .effects import fade, glitch, pixelate
 from .frame_reader import CameraError, FrameReader
 from .gestures import hand_gestures, is_trigger_sign
 from .hold_timer import HoldTimer
@@ -36,8 +36,7 @@ KEY_QUIT = ord("q")
 
 FPS_SMOOTHING = 0.9  # closer to 1 = steadier but slower to react
 
-EFFECT = "pixel"
-BLOCK_SIZE = 4
+EFFECT = "glitch"
 
 
 def smooth(smoothed, value):
@@ -105,14 +104,6 @@ def run(frame_reader, cam, recognizer, background, config):
     fps_display = 0.0
     latency_display = 0.0  # ms of our own processing per frame
 
-    frame_height, frame_width = background.shape[:2]
-    noise = np.random.rand(
-        math.ceil(frame_height / BLOCK_SIZE), math.ceil(frame_width / BLOCK_SIZE)
-    )
-    scaled_noise = cv.resize(
-        noise, (frame_width, frame_height), interpolation=cv.INTER_NEAREST
-    )
-
     while True:
         now = time.perf_counter()
         dt = now - last
@@ -140,11 +131,12 @@ def run(frame_reader, cam, recognizer, background, config):
 
         live_weight = dissolve_timer / config.dissolve_duration
 
-        if EFFECT == "pixel":
-            switched = scaled_noise < (1 - live_weight)
-            output = np.where(switched[:, :, None], background, frame)
+        if EFFECT == "pixelate":
+            output = pixelate(frame, background, 1 - live_weight)
+        elif EFFECT == "glitch":
+            output = glitch(frame, background, 1 - live_weight)
         else:
-            output = cv.addWeighted(frame, live_weight, background, 1 - live_weight, 0)
+            output = fade(frame, background, 1 - live_weight)
 
         debug_output = output.copy()
 
