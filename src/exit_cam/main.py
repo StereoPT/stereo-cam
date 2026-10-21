@@ -8,6 +8,7 @@ from pathlib import Path
 
 import cv2 as cv
 import mediapipe as mp
+import numpy as np
 import pyvirtualcam as pvm
 from mediapipe.tasks.python import BaseOptions
 from mediapipe.tasks.python.vision import (
@@ -34,6 +35,9 @@ KEY_RESET = ord("r")
 KEY_QUIT = ord("q")
 
 FPS_SMOOTHING = 0.9  # closer to 1 = steadier but slower to react
+
+EFFECT = "pixel"
+BLOCK_SIZE = 4
 
 
 def smooth(smoothed, value):
@@ -101,6 +105,14 @@ def run(frame_reader, cam, recognizer, background, config):
     fps_display = 0.0
     latency_display = 0.0  # ms of our own processing per frame
 
+    frame_height, frame_width = background.shape[:2]
+    noise = np.random.rand(
+        math.ceil(frame_height / BLOCK_SIZE), math.ceil(frame_width / BLOCK_SIZE)
+    )
+    scaled_noise = cv.resize(
+        noise, (frame_width, frame_height), interpolation=cv.INTER_NEAREST
+    )
+
     while True:
         now = time.perf_counter()
         dt = now - last
@@ -127,7 +139,13 @@ def run(frame_reader, cam, recognizer, background, config):
                 dissolve_direction = 1
 
         live_weight = dissolve_timer / config.dissolve_duration
-        output = cv.addWeighted(frame, live_weight, background, 1 - live_weight, 0)
+
+        if EFFECT == "pixel":
+            switched = scaled_noise < (1 - live_weight)
+            output = np.where(switched[:, :, None], background, frame)
+        else:
+            output = cv.addWeighted(frame, live_weight, background, 1 - live_weight, 0)
+
         debug_output = output.copy()
 
         gestures = None
