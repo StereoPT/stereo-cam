@@ -1,0 +1,3 @@
+# Trigger with a single-hand Victory sign (the "V") instead of the two-hand
+# FingertipsTouching sign.
+trigger_gesture = "Victory"
