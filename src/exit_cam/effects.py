@@ -66,3 +66,11 @@ def glitch(frame, background, amount):
     out[:, :, 0] = np.roll(out[:, :, 0], -shift, axis=1)
     out[:, :, 2] = np.roll(out[:, :, 2], shift, axis=1)
     return out
+
+
+# Every effect takes (frame, background, amount) and returns a frame
+EFFECTS = {
+    "fade": fade,
+    "pixelate": pixelate,
+    "glitch": glitch,
+}

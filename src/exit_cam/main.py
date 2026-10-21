@@ -18,7 +18,7 @@ from mediapipe.tasks.python.vision import (
 
 from .config import Config, ConfigError, load_config
 from .drawing import HUD, draw_centered_text, draw_hand
-from .effects import fade, glitch, pixelate
+from .effects import EFFECTS
 from .frame_reader import CameraError, FrameReader
 from .gestures import hand_gestures, is_trigger_sign
 from .hold_timer import HoldTimer
@@ -35,8 +35,6 @@ KEY_RESET = ord("r")
 KEY_QUIT = ord("q")
 
 FPS_SMOOTHING = 0.9  # closer to 1 = steadier but slower to react
-
-EFFECT = "glitch"
 
 
 def smooth(smoothed, value):
@@ -101,6 +99,7 @@ def run(frame_reader, cam, recognizer, background, config):
     dissolve_direction = 1
 
     hold_timer = HoldTimer(config.hold_duration, config.hold_grace)
+    effect = EFFECTS[config.effect]
     fps_display = 0.0
     latency_display = 0.0  # ms of our own processing per frame
 
@@ -131,12 +130,7 @@ def run(frame_reader, cam, recognizer, background, config):
 
         live_weight = dissolve_timer / config.dissolve_duration
 
-        if EFFECT == "pixelate":
-            output = pixelate(frame, background, 1 - live_weight)
-        elif EFFECT == "glitch":
-            output = glitch(frame, background, 1 - live_weight)
-        else:
-            output = fade(frame, background, 1 - live_weight)
+        output = effect(frame, background, 1 - live_weight)
 
         debug_output = output.copy()
 

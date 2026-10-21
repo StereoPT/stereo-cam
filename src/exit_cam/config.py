@@ -1,6 +1,8 @@
 import tomllib
 from dataclasses import dataclass, fields
 
+from .effects import EFFECTS
+
 # The labels the gesture model can output
 GESTURE_NAMES = (
     "Closed_Fist",
@@ -49,6 +51,7 @@ class Config:
     hold_grace: float = 0.1
 
     dissolve_duration: float = 1.0
+    effect: str = "glitch"  # how you disappear: one of the names in effects.EFFECTS
 
     requested_fps: int = 30
 
@@ -63,6 +66,11 @@ class Config:
             )
         if not 0 <= self.trigger_threshold <= 1:
             raise ConfigError("trigger_threshold must be between 0 and 1")
+        if self.effect not in EFFECTS:
+            raise ConfigError(
+                f"effect {self.effect!r} is not an effect. "
+                f"Choose one of: {', '.join(EFFECTS)}"
+            )
         if self.hold_duration <= 0:
             raise ConfigError("hold_duration must be greater than 0")
         if self.dissolve_duration <= 0:

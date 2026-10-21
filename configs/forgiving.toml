@@ -3,3 +3,4 @@ trigger_threshold = 0.6
 hold_duration = 1.0
 hold_grace = 0.3
 dissolve_duration = 2.0
+effect = "fade"

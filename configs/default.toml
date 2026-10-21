@@ -7,6 +7,7 @@ hold_duration = 0.5           # seconds the sign must be held
 hold_grace = 0.1              # seconds the sign may drop out without resetting the hold
 
 dissolve_duration = 1.0       # seconds the fade takes
+effect = "glitch"             # fade, pixelate or glitch
 
 requested_fps = 30            # frame rate asked of the camera (it may refuse)
 camera_index = 0
