@@ -2,6 +2,7 @@ import tomllib
 from dataclasses import dataclass, fields
 
 from .effects import EFFECTS
+from .gestures import FINGERTIPS_TOUCHING
 
 # The labels the gesture model can output
 GESTURE_NAMES = (
@@ -13,6 +14,9 @@ GESTURE_NAMES = (
     "Victory",
     "ILoveYou",
 )
+
+# Everything trigger_gesture can be: the model's labels, plus our own signs
+SIGN_NAMES = GESTURE_NAMES + (FINGERTIPS_TOUCHING,)
 
 
 class ConfigError(Exception):
@@ -44,7 +48,7 @@ def load_config(path):
 
 @dataclass(frozen=True)
 class Config:
-    trigger_gesture: str = "Victory"
+    trigger_gesture: str = "FingertipsTouching"
     trigger_threshold: float = 0.8
 
     hold_duration: float = 0.5
@@ -59,10 +63,10 @@ class Config:
     countdown_seconds: int = 3
 
     def __post_init__(self):
-        if self.trigger_gesture not in GESTURE_NAMES:
+        if self.trigger_gesture not in SIGN_NAMES:
             raise ConfigError(
-                f"trigger_gesture {self.trigger_gesture!r} is not a gesture. "
-                f"Choose one of: {', '.join(GESTURE_NAMES)}"
+                f"trigger_gesture {self.trigger_gesture!r} is not a sign. "
+                f"Choose one of: {', '.join(SIGN_NAMES)}"
             )
         if not 0 <= self.trigger_threshold <= 1:
             raise ConfigError("trigger_threshold must be between 0 and 1")
