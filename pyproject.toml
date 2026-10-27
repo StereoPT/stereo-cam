@@ -1,5 +1,5 @@
 [project]
-name = "exit-cam"
+name = "stereo-cam"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.scripts]
-exit-cam = "exit_cam.main:main"
+stereo-cam = "stereo_cam.main:main"
 
 [build-system]
 requires = ["uv_build>=0.13.1,<0.14.0"]

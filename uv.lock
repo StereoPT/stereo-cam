@@ -172,7 +172,7 @@ wheels = [
 ]
 
 [[package]]
-name = "exit-cam"
+name = "stereo-cam"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

@@ -1,10 +1,10 @@
-# exit-cam
+# stereo-cam
 
 Leave a video call without a fuss. Hold up a hand sign and your webcam picture
 dissolves into a photo of your empty room, so you can step away (or close the
 laptop) without the others watching you leave.
 
-exit-cam reads your webcam, watches for the sign with
+stereo-cam reads your webcam, watches for the sign with
 [MediaPipe](https://ai.google.dev/edge/mediapipe), and sends the result to a
 virtual camera. In Teams, Zoom or Meet, pick that virtual camera instead of your
 real one.
@@ -32,7 +32,7 @@ The preview is only for you: the virtual camera gets the clean picture.
 - [OBS Studio](https://obsproject.com/) installed, which provides the virtual
   camera that [pyvirtualcam](https://github.com/letmaik/pyvirtualcam) sends to.
   On a Mac you may need to start OBS's *Virtual Camera* once so it is set up,
-  and then stop it again, so exit-cam can use it.
+  and then stop it again, so stereo-cam can use it.
 - On macOS, allow camera access for the terminal app you run it from
   (System Settings, Privacy & Security, Camera).
 
@@ -40,7 +40,7 @@ The preview is only for you: the virtual camera gets the clean picture.
 
 ```sh
 uv sync
-curl -o src/exit_cam/models/gesture_recognizer.task \
+curl -o src/stereo_cam/models/gesture_recognizer.task \
   https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task
 ```
 
@@ -50,8 +50,8 @@ git.
 ## Run
 
 ```sh
-uv run exit-cam
-uv run exit-cam --config configs/snappy.toml
+uv run stereo-cam
+uv run stereo-cam --config configs/snappy.toml
 ```
 
 Without `--config` the built-in defaults are used. Then, in your video call,
@@ -103,7 +103,7 @@ Copy one to make your own.
 touch your thumb tips together and your index tips together, like a small
 diamond. It needs both hands in view. It measures how close the tips are
 compared to the size of your hand, so it works at any distance. How close
-counts as touching is `TOUCH_THRESHOLD` in `src/exit_cam/gestures.py`.
+counts as touching is `TOUCH_THRESHOLD` in `src/stereo_cam/gestures.py`.
 
 The other seven come from MediaPipe's gesture model, and work with a single
 hand: `Closed_Fist`, `Open_Palm`, `Pointing_Up`, `Thumb_Down`, `Thumb_Up`,
@@ -120,7 +120,7 @@ in your own file.
 
 To add an effect, write a function that takes `(frame, background, amount)`
 and returns a frame (`amount` goes from 0, all you, to 1, all room), and add
-it to `EFFECTS` in `src/exit_cam/effects.py`. It can then be used as the
+it to `EFFECTS` in `src/stereo_cam/effects.py`. It can then be used as the
 `effect` setting.
 
 ## Tips and limits
@@ -134,13 +134,13 @@ it to `EFFECTS` in `src/exit_cam/effects.py`. It can then be used as the
 - **Single-hand signs work with either hand.** `FingertipsTouching` needs both
   hands in view.
 - MediaPipe prints a few lines of its own log at startup. They are harmless.
-- Close other programs that use the camera, or exit-cam cannot open it.
+- Close other programs that use the camera, or stereo-cam cannot open it.
 
 ## Project layout
 
 ```
 configs/            example settings files
-src/exit_cam/
+src/stereo_cam/
   main.py           startup, background capture and the main loop
   config.py         the Config settings and the TOML loader
   effects.py        the dissolve effects and the EFFECTS registry

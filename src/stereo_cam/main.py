@@ -183,7 +183,7 @@ def main():
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
     )
-    log.info("# EXIT CAM #")
+    log.info("# STEREO CAM #")
 
     parser = argparse.ArgumentParser(description="Dissolve your webcam on a hand sign.")
     parser.add_argument("--config", help="path to a TOML settings file")
