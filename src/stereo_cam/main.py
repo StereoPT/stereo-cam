@@ -17,11 +17,12 @@ from mediapipe.tasks.python.vision import (
 )
 
 from .config import Config, ConfigError, load_config
-from .drawing import HUD, draw_centered_text, draw_hand
+from .drawing import HUD, draw_caption, draw_centered_text, draw_hand
 from .effects import EFFECTS
 from .frame_reader import CameraError, FrameReader
 from .gestures import hand_gestures, is_trigger_sign
 from .hold_timer import HoldTimer
+from .speech import Transcriber
 
 log = logging.getLogger(__name__)
 
@@ -89,7 +90,7 @@ def capture_background(frame_reader, countdown_seconds):
             started = time.perf_counter()
 
 
-def run(frame_reader, cam, recognizer, background, config):
+def run(frame_reader, cam, recognizer, background, config, transcriber=None):
     hud = HUD(MAX_HANDS)
     log.info("Using virtual camera: %s", cam.device)
     last = time.perf_counter()
@@ -131,6 +132,11 @@ def run(frame_reader, cam, recognizer, background, config):
         live_weight = dissolve_timer / config.dissolve_duration
 
         output = effect(frame, background, 1 - live_weight)
+
+        if transcriber is not None:
+            text, heard_at = transcriber.latest()
+            if text and now - heard_at < config.caption_seconds:
+                draw_caption(output, text)
 
         debug_output = output.copy()
 
@@ -219,9 +225,21 @@ def main():
 
         background = capture_background(frame_reader, config.countdown_seconds)
 
-        with GestureRecognizer.create_from_options(options) as recognizer:  # noqa: SIM117
-            with pvm.Camera(width=width, height=height, fps=fps) as cam:
-                run(frame_reader, cam, recognizer, background, config)
+        transcriber = None
+        if config.captions:
+            transcriber = Transcriber(
+                config.speech_model,
+                None if config.microphone < 0 else config.microphone,
+            )
+            transcriber.start()
+
+        try:
+            with GestureRecognizer.create_from_options(options) as recognizer:  # noqa: SIM117
+                with pvm.Camera(width=width, height=height, fps=fps) as cam:
+                    run(frame_reader, cam, recognizer, background, config, transcriber)
+        finally:
+            if transcriber is not None:
+                transcriber.stop()
 
         log.info("# DONE #")
     except CameraError as error:

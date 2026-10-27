@@ -32,12 +32,75 @@ BAR_W = PANEL_WIDTH - 2 * BAR_X  # full width, with the same margin on both side
 STATE_LABEL_X = 10
 STATE_LABEL_BOTTOM_MARGIN = 15  # from the bottom edge of the panel
 
+CAPTION_SCALE = 0.9
+CAPTION_THICKNESS = 2
+CAPTION_LINE_HEIGHT = 38
+CAPTION_MARGIN = 30  # from the bottom of the frame, and the most width given to the text on each side
+CAPTION_PAD = 10  # around the text, inside its dark box
+CAPTION_BOX_ALPHA = 0.6
+
 
 def draw_centered_text(img, text, scale, thickness):
     (text_width, text_height), _ = cv.getTextSize(text, FONT, scale, thickness)
     x = (img.shape[1] - text_width) // 2
     y = (img.shape[0] + text_height) // 2
     cv.putText(img, text, (x, y), FONT, scale, WHITE, thickness)
+
+
+def _wrap(text, max_width):
+    """Split text into lines that fit max_width pixels at the caption size."""
+    lines = []
+    line = ""
+    for word in text.split():
+        trial = f"{line} {word}".strip()
+        if (
+            line
+            and cv.getTextSize(trial, FONT, CAPTION_SCALE, CAPTION_THICKNESS)[0][0]
+            > max_width
+        ):
+            lines.append(line)
+            line = word
+        else:
+            line = trial
+    if line:
+        lines.append(line)
+
+    return lines
+
+
+def draw_caption(img, text):
+    """Subtitles at the bottom of the frame, on a darkened box. Shows the
+    last lines if the text is too long to fit."""
+    height, width = img.shape[:2]
+    lines = _wrap(text, width - 2 * CAPTION_MARGIN)
+    lines = lines[-3:]
+    if not lines:
+        return
+
+    box_height = len(lines) * CAPTION_LINE_HEIGHT + 2 * CAPTION_PAD
+    box_width = (
+        max(
+            cv.getTextSize(line, FONT, CAPTION_SCALE, CAPTION_THICKNESS)[0][0]
+            for line in lines
+        )
+        + 2 * CAPTION_PAD
+    )
+    left = (width - box_width) // 2
+    top = height - CAPTION_MARGIN - box_height
+
+    area = img[max(top, 0) : top + box_height, max(left, 0) : left + box_width]
+    area[:] = (
+        area * (1 - CAPTION_BOX_ALPHA)
+        + np.array(PANEL_COLOR, np.float32) * CAPTION_BOX_ALPHA
+    )
+
+    for i, line in enumerate(lines):
+        line_width = cv.getTextSize(line, FONT, CAPTION_SCALE, CAPTION_THICKNESS)[0][0]
+        pos = (
+            (width - line_width) // 2,
+            top + CAPTION_PAD + (i + 1) * CAPTION_LINE_HEIGHT - 10,
+        )
+        cv.putText(img, line, pos, FONT, CAPTION_SCALE, WHITE, CAPTION_THICKNESS)
 
 
 def draw_hand(img, landmarks):

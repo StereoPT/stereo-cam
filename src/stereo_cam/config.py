@@ -60,6 +60,11 @@ class Config:
     requested_fps: int = 30
 
     camera_index: int = 0
+
+    captions: bool = True  # show what you say as subtitles; needs a microphone
+    speech_model: str = "base.en"  # a Whisper model; the first run downloads it
+    caption_seconds: float = 4.0  # how long a phrase stays on screen
+    microphone: int = -1  # sound input device index; -1 is the system default
     countdown_seconds: int = 3
 
     def __post_init__(self):
@@ -83,6 +88,10 @@ class Config:
             raise ConfigError("hold_grace can't be negative")
         if self.requested_fps <= 0:
             raise ConfigError("requested_fps must be greater than 0")
+        if self.caption_seconds <= 0:
+            raise ConfigError("caption_seconds must be greater than 0")
+        if self.microphone < -1:
+            raise ConfigError("microphone must be -1 (default) or a device index")
         if self.camera_index < 0:
             raise ConfigError("camera_index can't be negative")
         if self.countdown_seconds < 0:

@@ -13,3 +13,8 @@ effect = "glitch"             # fade, pixelate or glitch
 requested_fps = 30            # frame rate asked of the camera (it may refuse)
 camera_index = 0
 countdown_seconds = 3         # capture countdown
+
+captions = true              # show what you say as subtitles (local speech recognition)
+speech_model = "base.en"      # Whisper model: tiny.en, base.en, small.en; drop ".en" for other languages
+caption_seconds = 4.0         # how long a phrase stays on screen
+microphone = -1               # sound input device index; -1 is the system default
