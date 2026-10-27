@@ -8,3 +8,7 @@ plan-next.html
 # Downloaded MediaPipe model (8 MB). Get it with:
 # curl -o src/stereo_cam/models/gesture_recognizer.task https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task
 gesture_recognizer.task
+
+# Downloaded MediaPipe face model (230 KB). Get it with:
+# curl -o src/stereo_cam/models/blaze_face_short_range.tflite https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite
+blaze_face_short_range.tflite

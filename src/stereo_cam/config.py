@@ -61,6 +61,8 @@ class Config:
 
     camera_index: int = 0
 
+    track_face: bool = True  # find your face and box it in the debug window
+
     captions: bool = True  # show what you say as subtitles; needs a microphone
     speech_model: str = "base.en"  # a Whisper model; the first run downloads it
     caption_seconds: float = 4.0  # how long a phrase stays on screen

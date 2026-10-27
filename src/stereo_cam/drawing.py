@@ -38,6 +38,8 @@ CAPTION_LINE_HEIGHT = 38
 CAPTION_MARGIN = 30  # from the bottom of the frame, and the most width given to the text on each side
 CAPTION_PAD = 10  # around the text, inside its dark box
 CAPTION_BOX_ALPHA = 0.6
+CAPTION_GAP = 10  # between the face box and a caption beside it
+CAPTION_MIN_WIDTH = 220  # narrowest a caption beside the face is allowed to get
 
 
 def draw_centered_text(img, text, scale, thickness):
@@ -68,12 +70,19 @@ def _wrap(text, max_width):
     return lines
 
 
-def draw_caption(img, text):
-    """Subtitles at the bottom of the frame, on a darkened box. Shows the
-    last lines if the text is too long to fit."""
+def draw_caption(img, text, face=None):
+    """Subtitles on a darkened box. Beside the face, from its top-right
+    corner (the caption's bottom edge level with the top of the face box), when a face box (x, y, width, height) is given; otherwise at the
+    bottom of the frame. Shows the last lines if the text is too long to fit."""
     height, width = img.shape[:2]
-    lines = _wrap(text, width - 2 * CAPTION_MARGIN)
-    lines = lines[-3:]
+    if face is None:
+        max_text_width = width - 2 * CAPTION_MARGIN
+    else:
+        face_x, face_y, face_width, _ = face
+        room = width - (face_x + face_width) - CAPTION_MARGIN
+        max_text_width = max(room, CAPTION_MIN_WIDTH) - 2 * CAPTION_PAD
+
+    lines = _wrap(text, max_text_width)[-3:]
     if not lines:
         return
 
@@ -85,10 +94,16 @@ def draw_caption(img, text):
         )
         + 2 * CAPTION_PAD
     )
-    left = (width - box_width) // 2
-    top = height - CAPTION_MARGIN - box_height
+    if face is None:
+        left = (width - box_width) // 2
+        top = height - CAPTION_MARGIN - box_height
+    else:
+        # keep it inside the frame, even when that means overlapping the face
+        left = min(face_x + face_width + CAPTION_GAP, width - box_width)
+        top = min(face_y - box_height, height - box_height)
 
-    area = img[max(top, 0) : top + box_height, max(left, 0) : left + box_width]
+    left, top = max(left, 0), max(top, 0)
+    area = img[top : top + box_height, left : left + box_width]
     area[:] = (
         area * (1 - CAPTION_BOX_ALPHA)
         + np.array(PANEL_COLOR, np.float32) * CAPTION_BOX_ALPHA
@@ -96,11 +111,15 @@ def draw_caption(img, text):
 
     for i, line in enumerate(lines):
         line_width = cv.getTextSize(line, FONT, CAPTION_SCALE, CAPTION_THICKNESS)[0][0]
-        pos = (
-            (width - line_width) // 2,
-            top + CAPTION_PAD + (i + 1) * CAPTION_LINE_HEIGHT - 10,
-        )
-        cv.putText(img, line, pos, FONT, CAPTION_SCALE, WHITE, CAPTION_THICKNESS)
+        x = (width - line_width) // 2 if face is None else left + CAPTION_PAD
+        y = top + CAPTION_PAD + (i + 1) * CAPTION_LINE_HEIGHT - 10
+        cv.putText(img, line, (x, y), FONT, CAPTION_SCALE, WHITE, CAPTION_THICKNESS)
+
+
+def draw_face(img, box):
+    """Outline a face box, given as (x, y, width, height) in pixels."""
+    x, y, width, height = box
+    cv.rectangle(img, (x, y), (x + width, y + height), GREEN, 2)
 
 
 def draw_hand(img, landmarks):

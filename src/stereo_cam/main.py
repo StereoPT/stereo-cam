@@ -11,13 +11,15 @@ import mediapipe as mp
 import pyvirtualcam as pvm
 from mediapipe.tasks.python import BaseOptions
 from mediapipe.tasks.python.vision import (
+    FaceDetector,
+    FaceDetectorOptions,
     GestureRecognizer,
     GestureRecognizerOptions,
     RunningMode,
 )
 
 from .config import Config, ConfigError, load_config
-from .drawing import HUD, draw_caption, draw_centered_text, draw_hand
+from .drawing import HUD, draw_caption, draw_centered_text, draw_face, draw_hand
 from .effects import EFFECTS
 from .frame_reader import CameraError, FrameReader
 from .gestures import hand_gestures, is_trigger_sign
@@ -27,6 +29,9 @@ from .speech import Transcriber
 log = logging.getLogger(__name__)
 
 MODEL_PATH = Path(__file__).parent / "models" / "gesture_recognizer.task"
+FACE_MODEL_PATH = Path(__file__).parent / "models" / "blaze_face_short_range.tflite"
+FACE_SMOOTHING = 0.7  # closer to 1 = steadier face box but slower to follow
+FACE_LOST_SECONDS = 1.0  # keep the last face box this long when detection drops out
 FALLBACK_FPS = 30  # used when the camera does not report its frame rate
 MAX_HANDS = 2  # hands the recognizer tracks, and the gesture lines the HUD shows
 
@@ -44,6 +49,30 @@ def smooth(smoothed, value):
         return value
 
     return FPS_SMOOTHING * smoothed + (1 - FPS_SMOOTHING) * value
+
+
+def detect_face(face_detector, frame, now):
+    """The most confident face in the frame as (x, y, width, height), or None."""
+    rgb_frame = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
+    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
+    detections = face_detector.detect_for_video(mp_image, int(now * 1000)).detections
+    if not detections:
+        return None
+
+    best = max(detections, key=lambda d: d.categories[0].score)
+    box = best.bounding_box
+    return (box.origin_x, box.origin_y, box.width, box.height)
+
+
+def smooth_box(smoothed, box):
+    """Blend a new face box into the running one (None means no box yet)."""
+    if smoothed is None:
+        return box
+
+    return tuple(
+        FACE_SMOOTHING * old + (1 - FACE_SMOOTHING) * new
+        for old, new in zip(smoothed, box, strict=True)
+    )
 
 
 class State(Enum):
@@ -90,7 +119,15 @@ def capture_background(frame_reader, countdown_seconds):
             started = time.perf_counter()
 
 
-def run(frame_reader, cam, recognizer, background, config, transcriber=None):
+def run(
+    frame_reader,
+    cam,
+    recognizer,
+    background,
+    config,
+    transcriber=None,
+    face_detector=None,
+):
     hud = HUD(MAX_HANDS)
     log.info("Using virtual camera: %s", cam.device)
     last = time.perf_counter()
@@ -101,6 +138,8 @@ def run(frame_reader, cam, recognizer, background, config, transcriber=None):
 
     hold_timer = HoldTimer(config.hold_duration, config.hold_grace)
     effect = EFFECTS[config.effect]
+    face_box = None  # smoothed (x, y, width, height) of your face, if tracking
+    face_seen_at = 0.0
     fps_display = 0.0
     latency_display = 0.0  # ms of our own processing per frame
 
@@ -131,12 +170,23 @@ def run(frame_reader, cam, recognizer, background, config, transcriber=None):
 
         live_weight = dissolve_timer / config.dissolve_duration
 
+        if face_detector is not None:
+            detected = detect_face(face_detector, frame, now)
+            if detected is not None:
+                face_box = smooth_box(face_box, detected)
+                face_seen_at = now
+            elif now - face_seen_at > FACE_LOST_SECONDS:
+                face_box = None
+
         output = effect(frame, background, 1 - live_weight)
 
         if transcriber is not None:
             text, heard_at = transcriber.latest()
             if text and now - heard_at < config.caption_seconds:
-                draw_caption(output, text)
+                caption_face = None
+                if face_box is not None:
+                    caption_face = [round(v) for v in face_box]
+                draw_caption(output, text, caption_face)
 
         debug_output = output.copy()
 
@@ -161,6 +211,9 @@ def run(frame_reader, cam, recognizer, background, config, transcriber=None):
                 hold_timer.reset()
 
             draw_hand(debug_output, landmarks)
+
+        if face_box is not None:
+            draw_face(debug_output, [round(v) for v in face_box])
 
         hud.draw(
             debug_output, fps_display, latency_display, state, gestures, hold_progress
@@ -212,6 +265,11 @@ def main():
         running_mode=RunningMode.VIDEO,
         num_hands=MAX_HANDS,
     )
+    if config.track_face and not FACE_MODEL_PATH.exists():
+        log.error("Face model not found: %s", FACE_MODEL_PATH)
+        log.error("Download it with the curl command listed in .gitignore")
+        sys.exit(1)
+
     cap = open_camera(config.camera_index, config.requested_fps)
     frame_reader = FrameReader(cap)
 
@@ -233,11 +291,30 @@ def main():
             )
             transcriber.start()
 
+        face_detector = None
+        if config.track_face:
+            face_detector = FaceDetector.create_from_options(
+                FaceDetectorOptions(
+                    base_options=BaseOptions(model_asset_path=str(FACE_MODEL_PATH)),
+                    running_mode=RunningMode.VIDEO,
+                )
+            )
+
         try:
             with GestureRecognizer.create_from_options(options) as recognizer:  # noqa: SIM117
                 with pvm.Camera(width=width, height=height, fps=fps) as cam:
-                    run(frame_reader, cam, recognizer, background, config, transcriber)
+                    run(
+                        frame_reader,
+                        cam,
+                        recognizer,
+                        background,
+                        config,
+                        transcriber,
+                        face_detector,
+                    )
         finally:
+            if face_detector is not None:
+                face_detector.close()
             if transcriber is not None:
                 transcriber.stop()
 
