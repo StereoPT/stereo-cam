@@ -958,8 +958,10 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "faster-whisper" },
+    { name = "fonttools" },
     { name = "mediapipe" },
     { name = "numpy" },
+    { name = "pillow" },
     { name = "pyvirtualcam" },
     { name = "sounddevice" },
 ]
@@ -972,8 +974,10 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "faster-whisper", specifier = ">=1.2.1" },
+    { name = "fonttools", specifier = ">=4.67.0" },
     { name = "mediapipe", specifier = ">=1.1.1" },
     { name = "numpy", specifier = ">=2.5.4" },
+    { name = "pillow", specifier = ">=13.0.0" },
     { name = "pyvirtualcam", specifier = ">=0.15.0" },
     { name = "sounddevice", specifier = ">=0.5.6" },
 ]

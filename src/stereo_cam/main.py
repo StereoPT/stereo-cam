@@ -18,9 +18,17 @@ from mediapipe.tasks.python.vision import (
     RunningMode,
 )
 
+from .animation import Spring, WordTracker, fade_out, pop
 from .config import Config, ConfigError, load_config
-from .drawing import HUD, draw_caption, draw_centered_text, draw_face, draw_hand
+from .drawing import (
+    CAPTION_CAP_HEIGHT,
+    HUD,
+    draw_caption,
+    draw_centered_text,
+    draw_hand,
+)
 from .effects import EFFECTS
+from .fonts import FontRotation
 from .frame_reader import CameraError, FrameReader
 from .gestures import hand_gestures, is_trigger_sign
 from .hold_timer import HoldTimer
@@ -31,13 +39,24 @@ log = logging.getLogger(__name__)
 MODEL_PATH = Path(__file__).parent / "models" / "gesture_recognizer.task"
 FACE_MODEL_PATH = Path(__file__).parent / "models" / "blaze_face_short_range.tflite"
 FACE_SMOOTHING = 0.7  # closer to 1 = steadier face box but slower to follow
+FOLLOW_FREQUENCY = 7.0  # how quickly the caption follows your head; higher is snappier
+FOLLOW_DAMPING = 0.6  # 1.0 settles with no bounce; lower overshoots a little more
+EMPHASIS_SWELL = (
+    0.8  # how much bigger a word at full emphasis is drawn, at caption_emphasis 1.0
+)
+EMPHASIS_STEP = 0.05  # sizes are rounded to this, so only so many font sizes are made
 FACE_LOST_SECONDS = 1.0  # keep the last face box this long when detection drops out
+REFERENCE_FACE_WIDTH = (
+    220  # face width in pixels at which captions are their default size
+)
+CAPTION_SCALE_RANGE = (0.5, 2.5)  # how far the face can change the caption size
 FALLBACK_FPS = 30  # used when the camera does not report its frame rate
 MAX_HANDS = 2  # hands the recognizer tracks, and the gesture lines the HUD shows
 
 # Keys
 KEY_CAPTURE = ord("c")
 KEY_RESET = ord("r")
+KEY_LANGUAGE = ord("l")
 KEY_QUIT = ord("q")
 
 FPS_SMOOTHING = 0.9  # closer to 1 = steadier but slower to react
@@ -62,6 +81,18 @@ def detect_face(face_detector, frame, now):
     best = max(detections, key=lambda d: d.categories[0].score)
     box = best.bounding_box
     return (box.origin_x, box.origin_y, box.width, box.height)
+
+
+def caption_scale(face, setting):
+    """How big to draw the caption: in proportion to the face, so it looks the
+    same whether you sit close or far. Rounded to steps of 5%, which keeps the
+    number of different font sizes down."""
+    scale = setting
+    if face is not None:
+        low, high = CAPTION_SCALE_RANGE
+        scale *= min(max(face[2] / REFERENCE_FACE_WIDTH, low), high)
+
+    return round(scale * 20) / 20
 
 
 def smooth_box(smoothed, box):
@@ -138,6 +169,9 @@ def run(
 
     hold_timer = HoldTimer(config.hold_duration, config.hold_grace)
     effect = EFFECTS[config.effect]
+    caption_fonts = FontRotation(config.caption_font_seconds)
+    caption_words = WordTracker()
+    caption_follow = Spring(FOLLOW_FREQUENCY, FOLLOW_DAMPING)
     face_box = None  # smoothed (x, y, width, height) of your face, if tracking
     face_seen_at = 0.0
     fps_display = 0.0
@@ -178,15 +212,35 @@ def run(
             elif now - face_seen_at > FACE_LOST_SECONDS:
                 face_box = None
 
+        # runs every frame, so a caption that appears later starts at your head
+        caption_face = None
+        if face_box is None:
+            caption_follow.reset()
+        else:
+            x, y = caption_follow.update(face_box[:2], dt)
+            caption_face = [round(x), round(y), *(round(v) for v in face_box[2:])]
+
         output = effect(frame, background, 1 - live_weight)
 
         if transcriber is not None:
-            text, heard_at = transcriber.latest()
-            if text and now - heard_at < config.caption_seconds:
-                caption_face = None
-                if face_box is not None:
-                    caption_face = [round(v) for v in face_box]
-                draw_caption(output, text, caption_face)
+            heard, heard_at, phrase = transcriber.latest()
+            showing = bool(heard) and now - heard_at < config.caption_seconds
+            shown_words = caption_words.update(heard if showing else [], phrase, now)
+            if showing:
+                words = []
+                for word, age, emphasis in shown_words:
+                    # squared, so a word that is only a bit louder stays close to normal size
+                    swell = 1 + EMPHASIS_SWELL * emphasis**2 * config.caption_emphasis
+                    pop_scale, alpha = pop(age)
+                    swell = round(swell / EMPHASIS_STEP) * EMPHASIS_STEP
+                    words.append((word, swell, pop_scale, alpha))
+                scale = caption_scale(caption_face, config.caption_scale)
+                text = " ".join(word for word, _, _, _ in words)
+                font = caption_fonts.current(
+                    now, round(CAPTION_CAP_HEIGHT * scale), text
+                )
+                fade = fade_out(now, heard_at, config.caption_seconds)
+                draw_caption(output, words, font, caption_face, scale, fade)
 
         debug_output = output.copy()
 
@@ -212,12 +266,20 @@ def run(
 
             draw_hand(debug_output, landmarks)
 
-        if face_box is not None:
-            draw_face(debug_output, [round(v) for v in face_box])
-
         hud.draw(
             debug_output, fps_display, latency_display, state, gestures, hold_progress
         )
+        if transcriber is not None:
+            label = f"Captions: {transcriber.language.upper()}  (L to switch)"
+            cv.putText(
+                debug_output,
+                label,
+                (10, debug_output.shape[0] - 15),
+                cv.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (255, 255, 255),
+                2,
+            )
         cv.imshow("frame", debug_output)
 
         cam.send(cv.cvtColor(output, cv.COLOR_BGR2RGB))
@@ -233,6 +295,13 @@ def run(
             dissolve_timer = config.dissolve_duration
             dissolve_direction = 1
             hold_timer.reset()
+        elif key == KEY_LANGUAGE and transcriber is not None:
+            languages = config.speech_languages
+            following = languages[
+                (languages.index(transcriber.language) + 1) % len(languages)
+            ]
+            transcriber.set_language(following)
+            log.info("Captions language: %s", following)
         elif key == KEY_QUIT:
             break
 
@@ -287,6 +356,7 @@ def main():
         if config.captions:
             transcriber = Transcriber(
                 config.speech_model,
+                config.speech_languages[0],
                 None if config.microphone < 0 else config.microphone,
             )
             transcriber.start()

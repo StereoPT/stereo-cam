@@ -3,6 +3,9 @@ import functools
 import cv2 as cv
 import numpy as np
 from mediapipe.tasks.python.vision import HandLandmarksConnections
+from PIL import Image, ImageDraw, ImageFilter
+
+from .fonts import scaled
 
 # Colours (BGR)
 WHITE = (255, 255, 255)
@@ -32,14 +35,21 @@ BAR_W = PANEL_WIDTH - 2 * BAR_X  # full width, with the same margin on both side
 STATE_LABEL_X = 10
 STATE_LABEL_BOTTOM_MARGIN = 15  # from the bottom edge of the panel
 
-CAPTION_SCALE = 0.9
-CAPTION_THICKNESS = 2
-CAPTION_LINE_HEIGHT = 38
+# The caption sizes below are for capitals CAPTION_CAP_HEIGHT pixels tall, and
+# grow or shrink with the text.
+CAPTION_CAP_HEIGHT = 26
+CAPTION_LINE_HEIGHT = 46
+CAPTION_BASELINE_UP = 12  # how far the baseline sits above the bottom of a line
 CAPTION_MARGIN = 30  # from the bottom of the frame, and the most width given to the text on each side
-CAPTION_PAD = 10  # around the text, inside its dark box
-CAPTION_BOX_ALPHA = 0.6
+CAPTION_PAD = 12  # around the text, room for its shadow
 CAPTION_GAP = 10  # between the face box and a caption beside it
 CAPTION_MIN_WIDTH = 220  # narrowest a caption beside the face is allowed to get
+CAPTION_OUTLINE = 1  # pixels
+CAPTION_OUTLINE_COLOR = (0, 0, 0, 255)
+CAPTION_TEXT_COLOR = (255, 255, 255, 255)
+CAPTION_SHADOW_OFFSET = (3, 3)
+CAPTION_SHADOW_BLUR = 2
+CAPTION_SHADOW_COLOR = (0, 0, 0, 170)
 
 
 def draw_centered_text(img, text, scale, thickness):
@@ -49,77 +59,181 @@ def draw_centered_text(img, text, scale, thickness):
     cv.putText(img, text, (x, y), FONT, scale, WHITE, thickness)
 
 
-def _wrap(text, max_width):
-    """Split text into lines that fit max_width pixels at the caption size."""
+def _line_width(line, font):
+    """Width in pixels of [(word, emphasis, pop, alpha)] drawn in a row; an
+    emphasised word is drawn bigger, so it takes more room."""
+    space = font.getlength(" ")
+    words = [scaled(font, word[1]).getlength(word[0]) for word in line]
+    return sum(words) + space * (len(words) - 1)
+
+
+def _wrap(words, font, max_width):
+    """Split [(word, emphasis, pop, alpha)] into lines that fit max_width
+    pixels in the given font."""
     lines = []
-    line = ""
-    for word in text.split():
-        trial = f"{line} {word}".strip()
-        if (
-            line
-            and cv.getTextSize(trial, FONT, CAPTION_SCALE, CAPTION_THICKNESS)[0][0]
-            > max_width
-        ):
+    line = []
+    for word in words:
+        if line and _line_width([*line, word], font) > max_width:
             lines.append(line)
-            line = word
+            line = [word]
         else:
-            line = trial
+            line.append(word)
     if line:
         lines.append(line)
 
     return lines
 
 
-def draw_caption(img, text, face=None):
-    """Subtitles on a darkened box. Beside the face, from its top-right
-    corner (the caption's bottom edge level with the top of the face box), when a face box (x, y, width, height) is given; otherwise at the
-    bottom of the frame. Shows the last lines if the text is too long to fit."""
+def _line_height(line, scale):
+    """A line with emphasised words is taller, as they grow upward."""
+    biggest = max(word[1] for word in line)
+    return round(CAPTION_LINE_HEIGHT * scale * max(biggest, 1.0))
+
+
+def _over(layer, image, x, y):
+    """Draw image over the RGBA layer with its top-left corner at (x, y),
+    cutting off whatever falls outside the layer."""
+    left, top = max(x, 0), max(y, 0)
+    right = min(x + image.width, layer.width)
+    bottom = min(y + image.height, layer.height)
+    if right <= left or bottom <= top:
+        return
+
+    part = image.crop((left - x, top - y, right - x, bottom - y))
+    layer.alpha_composite(part, (left, top))
+
+
+def _draw_word(layer, word, font, x, baseline, pop_scale, alpha, outline, room):
+    """One word with its left edge at x. A word at full size and opacity is
+    drawn straight on the layer; any other is drawn on its own, resized
+    around its baseline (so it grows upward) and faded. room is how many
+    pixels above the baseline the word may need."""
+    style = {
+        "font": font,
+        "anchor": "ls",
+        "fill": CAPTION_TEXT_COLOR,
+        "stroke_width": outline,
+        "stroke_fill": CAPTION_OUTLINE_COLOR,
+    }
+    if pop_scale == 1.0 and alpha == 1.0:
+        ImageDraw.Draw(layer).text((x, baseline), word, **style)
+        return
+
+    margin = round(font.size * 0.4)
+    width = round(font.getlength(word)) + 2 * margin
+    own = Image.new("RGBA", (width, room + margin), (0, 0, 0, 0))
+    ImageDraw.Draw(own).text((margin, room), word, **style)
+    if alpha < 1.0:
+        own.putalpha(own.getchannel("A").point(lambda a: round(a * alpha)))
+    if pop_scale != 1.0:
+        own = own.resize(
+            (
+                max(round(own.width * pop_scale), 1),
+                max(round(own.height * pop_scale), 1),
+            ),
+            Image.Resampling.BICUBIC,
+        )
+
+    # the word's centre and baseline stay where the full-size word's would be
+    centre = x - margin + width / 2
+    _over(
+        layer,
+        own,
+        round(centre - own.width / 2),
+        round(baseline - room * pop_scale),
+    )
+
+
+def _caption_layer(lines, font, width, height, scale, fade):
+    """The caption as an RGBA image: a soft shadow under outlined text."""
+    pad = round(CAPTION_PAD * scale)
+    outline = max(CAPTION_OUTLINE, round(CAPTION_OUTLINE * scale))
+    text = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    space = font.getlength(" ")
+    bottom = pad
+    for line in lines:
+        # lines share a baseline position, so switching fonts doesn't make them jump
+        bottom += _line_height(line, scale)
+        baseline = bottom - round(CAPTION_BASELINE_UP * scale)
+        x = float(pad)
+        for word, emphasis, pop_scale, alpha in line:
+            word_font = scaled(font, emphasis)
+            room = round(CAPTION_LINE_HEIGHT * scale * max(emphasis, 1.0))
+            _draw_word(
+                text,
+                word,
+                word_font,
+                round(x),
+                baseline,
+                pop_scale,
+                alpha,
+                outline,
+                room,
+            )
+            x += word_font.getlength(word) + space
+
+    shadow = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    shadow.putalpha(
+        text.getchannel("A").point(lambda a: CAPTION_SHADOW_COLOR[3] * a // 255)
+    )
+    shadow = shadow.filter(ImageFilter.GaussianBlur(CAPTION_SHADOW_BLUR * scale))
+    shadow_layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    shadow_layer.paste(
+        Image.new("RGBA", (width, height), CAPTION_SHADOW_COLOR[:3] + (255,)),
+        (
+            round(CAPTION_SHADOW_OFFSET[0] * scale),
+            round(CAPTION_SHADOW_OFFSET[1] * scale),
+        ),
+        shadow.getchannel("A"),
+    )
+
+    layer = Image.alpha_composite(shadow_layer, text)
+    if fade < 1.0:
+        layer.putalpha(layer.getchannel("A").point(lambda a: round(a * fade)))
+
+    return layer
+
+
+def draw_caption(img, words, font, face=None, scale=1.0, fade=1.0):
+    """Subtitles: outlined text with a soft shadow, no box. words is
+    [(word, emphasis, pop, alpha)]: emphasis is how many times bigger the word
+    is drawn (1.0 is normal; a word said loudly gets more), pop is the extra
+    size of its pop-in, and alpha how see-through it is. Beside the face, from
+    its top-right corner (the caption's bottom edge level with the top of the
+    face box), when a face box (x, y, width, height) is given; otherwise at
+    the bottom of the frame. Shows the last lines if the text is too long to
+    fit. scale is how much bigger than the default size the font is, so the
+    spacing grows with it. fade is the opacity of the whole caption."""
     height, width = img.shape[:2]
+    pad = round(CAPTION_PAD * scale)
     if face is None:
         max_text_width = width - 2 * CAPTION_MARGIN
     else:
         face_x, face_y, face_width, _ = face
         room = width - (face_x + face_width) - CAPTION_MARGIN
-        max_text_width = max(room, CAPTION_MIN_WIDTH) - 2 * CAPTION_PAD
+        max_text_width = max(room, round(CAPTION_MIN_WIDTH * scale)) - 2 * pad
 
-    lines = _wrap(text, max_text_width)[-3:]
+    lines = _wrap(words, font, max_text_width)[-3:]
     if not lines:
         return
 
-    box_height = len(lines) * CAPTION_LINE_HEIGHT + 2 * CAPTION_PAD
-    box_width = (
-        max(
-            cv.getTextSize(line, FONT, CAPTION_SCALE, CAPTION_THICKNESS)[0][0]
-            for line in lines
-        )
-        + 2 * CAPTION_PAD
-    )
+    box_height = sum(_line_height(line, scale) for line in lines) + 2 * pad
+    box_width = round(max(_line_width(line, font) for line in lines)) + 2 * pad
     if face is None:
         left = (width - box_width) // 2
         top = height - CAPTION_MARGIN - box_height
     else:
         # keep it inside the frame, even when that means overlapping the face
-        left = min(face_x + face_width + CAPTION_GAP, width - box_width)
+        left = min(face_x + face_width + round(CAPTION_GAP * scale), width - box_width)
         top = min(face_y - box_height, height - box_height)
 
     left, top = max(left, 0), max(top, 0)
+    layer = np.asarray(_caption_layer(lines, font, box_width, box_height, scale, fade))
     area = img[top : top + box_height, left : left + box_width]
-    area[:] = (
-        area * (1 - CAPTION_BOX_ALPHA)
-        + np.array(PANEL_COLOR, np.float32) * CAPTION_BOX_ALPHA
-    )
-
-    for i, line in enumerate(lines):
-        line_width = cv.getTextSize(line, FONT, CAPTION_SCALE, CAPTION_THICKNESS)[0][0]
-        x = (width - line_width) // 2 if face is None else left + CAPTION_PAD
-        y = top + CAPTION_PAD + (i + 1) * CAPTION_LINE_HEIGHT - 10
-        cv.putText(img, line, (x, y), FONT, CAPTION_SCALE, WHITE, CAPTION_THICKNESS)
-
-
-def draw_face(img, box):
-    """Outline a face box, given as (x, y, width, height) in pixels."""
-    x, y, width, height = box
-    cv.rectangle(img, (x, y), (x + width, y + height), GREEN, 2)
+    layer = layer[: area.shape[0], : area.shape[1]]
+    alpha = layer[:, :, 3:4].astype(np.float32) / 255
+    colour = layer[:, :, 2::-1]  # RGB to BGR
+    area[:] = area * (1 - alpha) + colour * alpha
 
 
 def draw_hand(img, landmarks):

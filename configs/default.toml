@@ -14,9 +14,13 @@ requested_fps = 30            # frame rate asked of the camera (it may refuse)
 camera_index = 0
 countdown_seconds = 3         # capture countdown
 
-track_face = true             # find your face and box it in the debug window
+track_face = true             # find your face, so captions can follow it
 
 captions = true            # show what you say as subtitles (local speech recognition)
-speech_model = "base.en"      # Whisper model: tiny.en, base.en, small.en; drop ".en" for other languages
+speech_model = "base"         # Whisper model: tiny, base, small; the ".en" ones only understand English
+speech_languages = ["en", "pt"]  # languages you speak; the first is used at start, and L switches
 caption_seconds = 4.0         # how long a phrase stays on screen
+caption_scale = 1.0           # text size relative to your face; 2.0 is twice as big
+caption_emphasis = 1.0       # how much bigger a word you say louder gets; 0 turns it off
+caption_font_seconds = 0.4    # how often the caption switches to another font
 microphone = -1               # sound input device index; -1 is the system default
