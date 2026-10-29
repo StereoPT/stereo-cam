@@ -45,6 +45,12 @@ EMPHASIS_SWELL = (
     0.8  # how much bigger a word at full emphasis is drawn, at caption_emphasis 1.0
 )
 EMPHASIS_STEP = 0.05  # sizes are rounded to this, so only so many font sizes are made
+TILT_FREQUENCY = 6.0  # how quickly the caption turns with your head
+TILT_DAMPING = 0.8  # 1.0 settles with no overshoot
+TILT_DEAD_ZONE = math.radians(
+    3
+)  # head tilts smaller than this are mostly detector noise
+TILT_MAX = math.radians(35)  # the caption never turns further than this
 FACE_LOST_SECONDS = 1.0  # keep the last face box this long when detection drops out
 REFERENCE_FACE_WIDTH = (
     220  # face width in pixels at which captions are their default size
@@ -70,8 +76,28 @@ def smooth(smoothed, value):
     return FPS_SMOOTHING * smoothed + (1 - FPS_SMOOTHING) * value
 
 
+def head_roll(keypoints, width, height):
+    """How far the head is tilted, in radians, clockwise on screen, from the
+    line through the eyes and the line through the ears. 0.0 if the detector
+    didn't report them."""
+    if len(keypoints) < 6:
+        return 0.0
+
+    # the detector lists: eye, eye, nose, mouth, ear, ear
+    across_x = across_y = 0.0
+    for pair in (keypoints[0:2], keypoints[4:6]):
+        (left_x, left_y), (right_x, right_y) = sorted(
+            (point.x * width, point.y * height) for point in pair
+        )
+        across_x += right_x - left_x
+        across_y += right_y - left_y
+
+    return math.atan2(across_y, across_x)
+
+
 def detect_face(face_detector, frame, now):
-    """The most confident face in the frame as (x, y, width, height), or None."""
+    """The most confident face in the frame as (x, y, width, height, roll),
+    or None."""
     rgb_frame = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
     mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
     detections = face_detector.detect_for_video(mp_image, int(now * 1000)).detections
@@ -80,7 +106,15 @@ def detect_face(face_detector, frame, now):
 
     best = max(detections, key=lambda d: d.categories[0].score)
     box = best.bounding_box
-    return (box.origin_x, box.origin_y, box.width, box.height)
+    roll = head_roll(best.keypoints, frame.shape[1], frame.shape[0])
+    return (box.origin_x, box.origin_y, box.width, box.height, roll)
+
+
+def tilt_target(roll):
+    """The angle the caption should turn to for a head roll: small tilts are
+    ignored (the key points are noisy), and big ones are limited."""
+    magnitude = max(abs(roll) - TILT_DEAD_ZONE, 0.0)
+    return math.copysign(min(magnitude, TILT_MAX), roll)
 
 
 def caption_scale(face, setting):
@@ -172,7 +206,8 @@ def run(
     caption_fonts = FontRotation(config.caption_font_seconds)
     caption_words = WordTracker()
     caption_follow = Spring(FOLLOW_FREQUENCY, FOLLOW_DAMPING)
-    face_box = None  # smoothed (x, y, width, height) of your face, if tracking
+    caption_tilt = Spring(TILT_FREQUENCY, TILT_DAMPING)
+    face_box = None  # smoothed (x, y, width, height, roll) of your face, if tracking
     face_seen_at = 0.0
     fps_display = 0.0
     latency_display = 0.0  # ms of our own processing per frame
@@ -214,11 +249,14 @@ def run(
 
         # runs every frame, so a caption that appears later starts at your head
         caption_face = None
+        tilt = 0.0
         if face_box is None:
             caption_follow.reset()
+            caption_tilt.reset()
         else:
             x, y = caption_follow.update(face_box[:2], dt)
-            caption_face = [round(x), round(y), *(round(v) for v in face_box[2:])]
+            caption_face = [round(x), round(y), round(face_box[2]), round(face_box[3])]
+            tilt = caption_tilt.update((tilt_target(face_box[4]),), dt)[0]
 
         output = effect(frame, background, 1 - live_weight)
 
@@ -240,7 +278,15 @@ def run(
                     now, round(CAPTION_CAP_HEIGHT * scale), text
                 )
                 fade = fade_out(now, heard_at, config.caption_seconds)
-                draw_caption(output, words, font, caption_face, scale, fade)
+                draw_caption(
+                    output,
+                    words,
+                    font,
+                    caption_face,
+                    scale,
+                    fade,
+                    tilt * config.caption_tilt,
+                )
 
         debug_output = output.copy()
 

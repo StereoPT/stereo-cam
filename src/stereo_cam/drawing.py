@@ -1,4 +1,5 @@
 import functools
+import math
 
 import cv2 as cv
 import numpy as np
@@ -194,7 +195,7 @@ def _caption_layer(lines, font, width, height, scale, fade):
     return layer
 
 
-def draw_caption(img, words, font, face=None, scale=1.0, fade=1.0):
+def draw_caption(img, words, font, face=None, scale=1.0, fade=1.0, tilt=0.0):
     """Subtitles: outlined text with a soft shadow, no box. words is
     [(word, emphasis, pop, alpha)]: emphasis is how many times bigger the word
     is drawn (1.0 is normal; a word said loudly gets more), pop is the extra
@@ -203,13 +204,15 @@ def draw_caption(img, words, font, face=None, scale=1.0, fade=1.0):
     face box), when a face box (x, y, width, height) is given; otherwise at
     the bottom of the frame. Shows the last lines if the text is too long to
     fit. scale is how much bigger than the default size the font is, so the
-    spacing grows with it. fade is the opacity of the whole caption."""
+    spacing grows with it. fade is the opacity of the whole caption. tilt is
+    an angle in radians, clockwise, that the caption is turned by around the
+    middle of the face, as if it were attached to your head."""
     height, width = img.shape[:2]
     pad = round(CAPTION_PAD * scale)
     if face is None:
         max_text_width = width - 2 * CAPTION_MARGIN
     else:
-        face_x, face_y, face_width, _ = face
+        face_x, face_y, face_width, face_height = face
         room = width - (face_x + face_width) - CAPTION_MARGIN
         max_text_width = max(room, round(CAPTION_MIN_WIDTH * scale)) - 2 * pad
 
@@ -228,11 +231,50 @@ def draw_caption(img, words, font, face=None, scale=1.0, fade=1.0):
         top = min(face_y - box_height, height - box_height)
 
     left, top = max(left, 0), max(top, 0)
-    layer = np.asarray(_caption_layer(lines, font, box_width, box_height, scale, fade))
-    area = img[top : top + box_height, left : left + box_width]
-    layer = layer[: area.shape[0], : area.shape[1]]
-    alpha = layer[:, :, 3:4].astype(np.float32) / 255
-    colour = layer[:, :, 2::-1]  # RGB to BGR
+    layer = _caption_layer(lines, font, box_width, box_height, scale, fade)
+    if face is not None and tilt:
+        left, top, layer = _tilted(
+            layer,
+            (left + box_width / 2, top + box_height / 2),
+            (face_x + face_width / 2, face_y + face_height / 2),
+            tilt,
+            (width, height),
+        )
+
+    _blend(img, np.asarray(layer), left, top)
+
+
+def _tilted(layer, centre, pivot, angle, frame_size):
+    """The caption layer turned clockwise by angle (radians) around pivot, as
+    (left, top, layer): where its top-left corner goes, and the larger image
+    that holds the turned layer. It is moved back inside a frame_size (width,
+    height) frame if turning would take it out."""
+    cos, sin = math.cos(angle), math.sin(angle)
+    dx, dy = centre[0] - pivot[0], centre[1] - pivot[1]
+    new_x = pivot[0] + dx * cos - dy * sin
+    new_y = pivot[1] + dx * sin + dy * cos
+    turned = layer.rotate(-math.degrees(angle), Image.Resampling.BICUBIC, expand=True)
+    left = round(new_x - turned.width / 2)
+    top = round(new_y - turned.height / 2)
+    # turning swings the caption outward; keep all of it in the frame
+    left = min(max(left, 0), max(frame_size[0] - turned.width, 0))
+    top = min(max(top, 0), max(frame_size[1] - turned.height, 0))
+    return left, top, turned
+
+
+def _blend(img, layer, left, top):
+    """Draw an RGBA array over the BGR image with its top-left corner at
+    (left, top), cutting off whatever falls outside the image."""
+    x0, y0 = max(left, 0), max(top, 0)
+    x1 = min(left + layer.shape[1], img.shape[1])
+    y1 = min(top + layer.shape[0], img.shape[0])
+    if x1 <= x0 or y1 <= y0:
+        return
+
+    part = layer[y0 - top : y1 - top, x0 - left : x1 - left]
+    area = img[y0:y1, x0:x1]
+    alpha = part[:, :, 3:4].astype(np.float32) / 255
+    colour = part[:, :, 2::-1]  # RGB to BGR
     area[:] = area * (1 - alpha) + colour * alpha
 
 

@@ -71,6 +71,9 @@ class Config:
     caption_emphasis: float = (
         1.0  # how much bigger a word you say louder gets; 0 is off
     )
+    caption_tilt: float = (
+        0.6  # how much the caption tilts with your head; 0 is off, 1 follows fully
+    )
     caption_font_seconds: float = 0.4  # how often the caption switches to another font
     microphone: int = -1  # sound input device index; -1 is the system default
     countdown_seconds: int = 3
@@ -113,6 +116,8 @@ class Config:
             raise ConfigError("caption_scale must be greater than 0")
         if self.caption_emphasis < 0:
             raise ConfigError("caption_emphasis can't be negative")
+        if self.caption_tilt < 0:
+            raise ConfigError("caption_tilt can't be negative")
         if self.caption_font_seconds <= 0:
             raise ConfigError("caption_font_seconds must be greater than 0")
         if self.microphone < -1:
