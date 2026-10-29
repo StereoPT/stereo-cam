@@ -23,5 +23,6 @@ caption_seconds = 4.0         # how long a phrase stays on screen
 caption_scale = 1.0           # text size relative to your face; 2.0 is twice as big
 caption_emphasis = 1.0       # how much bigger a word you say louder gets; 0 turns it off
 caption_tilt = 0.6            # how much the caption tilts with your head; 0 turns it off, 1 follows it fully
+caption_highlight = "#FFD60A"   # colour an emphasised word turns toward, as #RRGGBB
 caption_font_seconds = 0.4    # how often the caption switches to another font
 microphone = -1               # sound input device index; -1 is the system default

@@ -60,8 +60,23 @@ def draw_centered_text(img, text, scale, thickness):
     cv.putText(img, text, (x, y), FONT, scale, WHITE, thickness)
 
 
+def hex_to_rgb(code):
+    """(red, green, blue) from a colour written like "#FFD60A"."""
+    return tuple(int(code[i : i + 2], 16) for i in (1, 3, 5))
+
+
+def caption_colour(highlight, amount):
+    """The text colour of a word as RGBA: white, turning into the highlight
+    (red, green, blue) colour as amount goes from 0.0 to 1.0."""
+    white = CAPTION_TEXT_COLOR[:3]
+    mixed = tuple(
+        round(w + (h - w) * amount) for w, h in zip(white, highlight, strict=True)
+    )
+    return (*mixed, 255)
+
+
 def _line_width(line, font):
-    """Width in pixels of [(word, emphasis, pop, alpha)] drawn in a row; an
+    """Width in pixels of [(word, emphasis, pop, alpha, colour)] drawn in a row; an
     emphasised word is drawn bigger, so it takes more room."""
     space = font.getlength(" ")
     words = [scaled(font, word[1]).getlength(word[0]) for word in line]
@@ -69,7 +84,7 @@ def _line_width(line, font):
 
 
 def _wrap(words, font, max_width):
-    """Split [(word, emphasis, pop, alpha)] into lines that fit max_width
+    """Split [(word, emphasis, pop, alpha, colour)] into lines that fit max_width
     pixels in the given font."""
     lines = []
     line = []
@@ -104,7 +119,7 @@ def _over(layer, image, x, y):
     layer.alpha_composite(part, (left, top))
 
 
-def _draw_word(layer, word, font, x, baseline, pop_scale, alpha, outline, room):
+def _draw_word(layer, word, font, x, baseline, pop_scale, alpha, outline, room, colour):
     """One word with its left edge at x. A word at full size and opacity is
     drawn straight on the layer; any other is drawn on its own, resized
     around its baseline (so it grows upward) and faded. room is how many
@@ -112,7 +127,7 @@ def _draw_word(layer, word, font, x, baseline, pop_scale, alpha, outline, room):
     style = {
         "font": font,
         "anchor": "ls",
-        "fill": CAPTION_TEXT_COLOR,
+        "fill": colour,
         "stroke_width": outline,
         "stroke_fill": CAPTION_OUTLINE_COLOR,
     }
@@ -157,7 +172,7 @@ def _caption_layer(lines, font, width, height, scale, fade):
         bottom += _line_height(line, scale)
         baseline = bottom - round(CAPTION_BASELINE_UP * scale)
         x = float(pad)
-        for word, emphasis, pop_scale, alpha in line:
+        for word, emphasis, pop_scale, alpha, colour in line:
             word_font = scaled(font, emphasis)
             room = round(CAPTION_LINE_HEIGHT * scale * max(emphasis, 1.0))
             _draw_word(
@@ -170,6 +185,7 @@ def _caption_layer(lines, font, width, height, scale, fade):
                 alpha,
                 outline,
                 room,
+                colour,
             )
             x += word_font.getlength(word) + space
 
@@ -197,9 +213,9 @@ def _caption_layer(lines, font, width, height, scale, fade):
 
 def draw_caption(img, words, font, face=None, scale=1.0, fade=1.0, tilt=0.0):
     """Subtitles: outlined text with a soft shadow, no box. words is
-    [(word, emphasis, pop, alpha)]: emphasis is how many times bigger the word
+    [(word, emphasis, pop, alpha, colour)]: emphasis is how many times bigger the word
     is drawn (1.0 is normal; a word said loudly gets more), pop is the extra
-    size of its pop-in, and alpha how see-through it is. Beside the face, from
+    size of its pop-in, alpha how see-through it is, and colour its RGBA colour. Beside the face, from
     its top-right corner (the caption's bottom edge level with the top of the
     face box), when a face box (x, y, width, height) is given; otherwise at
     the bottom of the frame. Shows the last lines if the text is too long to

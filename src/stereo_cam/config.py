@@ -1,3 +1,4 @@
+import re
 import tomllib
 from dataclasses import dataclass, fields
 
@@ -74,6 +75,9 @@ class Config:
     caption_tilt: float = (
         0.6  # how much the caption tilts with your head; 0 is off, 1 follows fully
     )
+    caption_highlight: str = (
+        "#FFD60A"  # colour an emphasised word turns toward, as #RRGGBB
+    )
     caption_font_seconds: float = 0.4  # how often the caption switches to another font
     microphone: int = -1  # sound input device index; -1 is the system default
     countdown_seconds: int = 3
@@ -116,6 +120,11 @@ class Config:
             raise ConfigError("caption_scale must be greater than 0")
         if self.caption_emphasis < 0:
             raise ConfigError("caption_emphasis can't be negative")
+        if not re.fullmatch(r"#[0-9a-fA-F]{6}", self.caption_highlight):
+            raise ConfigError(
+                f"caption_highlight {self.caption_highlight!r} is not a colour. "
+                'Write it like "#FFD60A"'
+            )
         if self.caption_tilt < 0:
             raise ConfigError("caption_tilt can't be negative")
         if self.caption_font_seconds <= 0:

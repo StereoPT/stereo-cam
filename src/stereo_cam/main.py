@@ -23,9 +23,11 @@ from .config import Config, ConfigError, load_config
 from .drawing import (
     CAPTION_CAP_HEIGHT,
     HUD,
+    caption_colour,
     draw_caption,
     draw_centered_text,
     draw_hand,
+    hex_to_rgb,
 )
 from .effects import EFFECTS
 from .fonts import FontRotation
@@ -205,6 +207,7 @@ def run(
     effect = EFFECTS[config.effect]
     caption_fonts = FontRotation(config.caption_font_seconds)
     caption_words = WordTracker()
+    highlight = hex_to_rgb(config.caption_highlight)
     caption_follow = Spring(FOLLOW_FREQUENCY, FOLLOW_DAMPING)
     caption_tilt = Spring(TILT_FREQUENCY, TILT_DAMPING)
     face_box = None  # smoothed (x, y, width, height, roll) of your face, if tracking
@@ -260,24 +263,32 @@ def run(
 
         output = effect(frame, background, 1 - live_weight)
 
+        # Captions belong to you: they fade out as you dissolve and back in as
+        # you return, and stay away while you are out of the frame.
+        presence = live_weight
+        if face_detector is not None and face_box is None:
+            presence = 0.0
+
         if transcriber is not None:
             heard, heard_at, phrase = transcriber.latest()
             showing = bool(heard) and now - heard_at < config.caption_seconds
             shown_words = caption_words.update(heard if showing else [], phrase, now)
-            if showing:
+            if showing and presence > 0:
                 words = []
                 for word, age, emphasis in shown_words:
                     # squared, so a word that is only a bit louder stays close to normal size
                     swell = 1 + EMPHASIS_SWELL * emphasis**2 * config.caption_emphasis
                     pop_scale, alpha = pop(age)
                     swell = round(swell / EMPHASIS_STEP) * EMPHASIS_STEP
-                    words.append((word, swell, pop_scale, alpha))
+                    shade = min(emphasis * config.caption_emphasis, 1.0)
+                    colour = caption_colour(highlight, shade)
+                    words.append((word, swell, pop_scale, alpha, colour))
                 scale = caption_scale(caption_face, config.caption_scale)
-                text = " ".join(word for word, _, _, _ in words)
+                text = " ".join(word[0] for word in words)
                 font = caption_fonts.current(
                     now, round(CAPTION_CAP_HEIGHT * scale), text
                 )
-                fade = fade_out(now, heard_at, config.caption_seconds)
+                fade = fade_out(now, heard_at, config.caption_seconds) * presence
                 draw_caption(
                     output,
                     words,
