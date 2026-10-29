@@ -12,3 +12,7 @@ gesture_recognizer.task
 # Downloaded MediaPipe face model (230 KB). Get it with:
 # curl -o src/stereo_cam/models/blaze_face_short_range.tflite https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite
 blaze_face_short_range.tflite
+
+# Your own caption fonts. Licences vary, so they stay out of the repository.
+# Without any, the open-licence ones in src/stereo_cam/default_fonts/ are used.
+src/stereo_cam/fonts/

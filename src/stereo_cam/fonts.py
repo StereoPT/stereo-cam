@@ -1,13 +1,27 @@
 import functools
+import logging
 import random
 from pathlib import Path
 
 from fontTools.ttLib import TTFont
 from PIL import ImageFont
 
+log = logging.getLogger(__name__)
+
+# your own fonts; not part of the repository
 FONT_DIR = Path(__file__).parent / "fonts"
+# open-licence fonts that come with it, used when FONT_DIR has none
+DEFAULT_FONT_DIR = Path(__file__).parent / "default_fonts"
 FONT_SUFFIXES = (".ttf", ".otf")
 MEASURE_SIZE = 100  # size the fonts are measured at to work out their scale
+
+
+def _font_files(folder):
+    """The font files in a folder, or none if it doesn't exist."""
+    if not folder.is_dir():
+        return []
+
+    return sorted(p for p in folder.iterdir() if p.suffix.lower() in FONT_SUFFIXES)
 
 
 @functools.cache
@@ -16,11 +30,15 @@ def font_paths():
     size_per_cap is the font size at which a capital letter is one pixel tall:
     fonts at the same point size look very different in size, so each is sized
     by its capitals instead. characters are the code points the font can draw."""
-    fonts = []
-    for path in sorted(FONT_DIR.iterdir()):
-        if path.suffix.lower() not in FONT_SUFFIXES:
-            continue
+    files = _font_files(FONT_DIR)
+    if files:
+        log.info("Using %d fonts from %s", len(files), FONT_DIR)
+    else:
+        files = _font_files(DEFAULT_FONT_DIR)
+        log.info("No fonts in %s, using the %d default ones", FONT_DIR, len(files))
 
+    fonts = []
+    for path in files:
         measure = ImageFont.truetype(str(path), MEASURE_SIZE)
         _, top, _, bottom = measure.getbbox("H")
         cap = bottom - top
@@ -33,7 +51,7 @@ def font_paths():
         fonts.append((str(path), MEASURE_SIZE / cap, characters))
 
     if not fonts:
-        raise FileNotFoundError(f"No .ttf or .otf fonts found in {FONT_DIR}")
+        raise FileNotFoundError(f"No .ttf or .otf fonts found in {DEFAULT_FONT_DIR}")
 
     return fonts
 

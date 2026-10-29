@@ -9,6 +9,11 @@ stereo-cam reads your webcam, watches for the sign with
 virtual camera. In Teams, Zoom or Meet, pick that virtual camera instead of your
 real one.
 
+It can also caption what you say, live, in a playful style: the text sits beside
+your head and follows it, changes font, pops in word by word, and a word you say
+louder grows and turns a highlight colour. Speech recognition runs on your own
+machine. See [Captions](#captions).
+
 ## How it works
 
 1. **Capture the room.** At startup you get a preview window. Step out of the
@@ -34,7 +39,8 @@ The preview is only for you: the virtual camera gets the clean picture.
   On a Mac you may need to start OBS's *Virtual Camera* once so it is set up,
   and then stop it again, so stereo-cam can use it.
 - On macOS, allow camera access for the terminal app you run it from
-  (System Settings, Privacy & Security, Camera).
+  (System Settings, Privacy & Security, Camera). For captions, also allow the
+  microphone.
 
 ## Setup
 
@@ -42,10 +48,16 @@ The preview is only for you: the virtual camera gets the clean picture.
 uv sync
 curl -o src/stereo_cam/models/gesture_recognizer.task \
   https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task
+curl -o src/stereo_cam/models/blaze_face_short_range.tflite \
+  https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite
 ```
 
-The second command downloads the gesture model (about 8 MB). It is not kept in
-git.
+The two commands download the gesture model (about 8 MB) and the face model
+(about 230 KB). Neither is kept in git. The face model is used to place the
+captions; you only need it with `track_face = true`, which is the default.
+
+The first time captions run, the speech model is downloaded too (about 140 MB
+for the default `base`), and then kept on your machine.
 
 ## Run
 
@@ -63,6 +75,7 @@ choose **OBS Virtual Camera** as the camera.
 |-----|-------|--------------|
 | `c` | capture window | Start the countdown that photographs the empty room |
 | `r` | preview window | Reset to `LIVE` right away |
+| `l` | preview window | Switch the caption language (with captions on) |
 | `q` | preview window | Quit |
 
 The keys only work while a window is focused.
@@ -84,6 +97,17 @@ the app with a message that says what is wrong.
 | `requested_fps` | `30` | Frame rate asked of the camera (it may refuse) |
 | `camera_index` | `0` | Which camera to use |
 | `countdown_seconds` | `3` | Length of the capture countdown |
+| `track_face` | `true` | Find your face, so captions can follow it |
+| `captions` | `true` | Show what you say as captions |
+| `speech_model` | `"base"` | Whisper model: `tiny`, `base`, `small`, ... The `.en` ones only understand English |
+| `speech_languages` | `["en", "pt"]` | Languages you speak. The first is used at start, and `l` switches |
+| `caption_seconds` | `4.0` | How long a phrase stays on screen |
+| `caption_scale` | `1.0` | Text size, relative to your face |
+| `caption_emphasis` | `1.0` | How much bigger and more coloured a word you say louder gets. `0` is off |
+| `caption_highlight` | `"#FFD60A"` | The colour an emphasised word turns toward |
+| `caption_tilt` | `0.6` | How much the caption tilts with your head. `0` is off, `1` follows fully |
+| `caption_font_seconds` | `0.4` | How often the caption switches font |
+| `microphone` | `-1` | Sound input device index. `-1` is the system default |
 
 The profiles in `configs/`:
 
@@ -123,6 +147,28 @@ and returns a frame (`amount` goes from 0, all you, to 1, all room), and add
 it to `EFFECTS` in `src/stereo_cam/effects.py`. It can then be used as the
 `effect` setting.
 
+## Captions
+
+With `captions = true`, what you say appears as text at the top right of your
+face, on the picture that goes to the virtual camera.
+
+- **Speech recognition is local.** It uses
+  [faster-whisper](https://github.com/SYSTRAN/faster-whisper), so no audio leaves
+  your machine. Text appears while you are still talking, and is corrected when
+  you pause. Switch between the languages in `speech_languages` with `l`.
+- **Follows your head.** The caption trails your head on a spring, grows and
+  shrinks with the size of your face, and tilts as you tilt your head.
+  Captions fade out while you dissolve and stay away while you are gone or out of
+  the frame.
+- **Emphasis.** A word you say clearly louder than the rest of its phrase is drawn
+  bigger and turns toward `caption_highlight`. How loud counts is set by
+  `EMPHASIS_FROM_DB` and `EMPHASIS_FULL_DB` in `src/stereo_cam/speech.py`.
+- **Fonts.** The font changes every `caption_font_seconds`. Put your own `.ttf`
+  or `.otf` files in `src/stereo_cam/fonts/` (the folder is not in git) and they
+  are used. With none there, a few open-licence fonts from
+  `src/stereo_cam/default_fonts/` are used instead. Fonts without the accents a
+  caption needs are skipped for that caption.
+
 ## Tips and limits
 
 - **Step out of the shot when you capture the room.** If you are in the photo,
@@ -144,11 +190,16 @@ src/stereo_cam/
   main.py           startup, background capture and the main loop
   config.py         the Config settings and the TOML loader
   effects.py        the dissolve effects and the EFFECTS registry
-  drawing.py        the preview panel and the text and hand drawing
+  drawing.py        the preview panel, the captions and the hand drawing
+  speech.py         the microphone, speech recognition and word loudness
+  animation.py      word pop-in, fades and the springs
+  fonts.py          finding the fonts and sizing them evenly
   gestures.py       reading MediaPipe's result and checking for the sign
   hold_timer.py     how long a sign has been held
   frame_reader.py   reading the camera and surviving hiccups
-  models/           the downloaded gesture model
+  models/           the downloaded gesture and face models
+  fonts/            your own caption fonts (not in git)
+  default_fonts/    the open-licence fonts that come with it
 ```
 
 ## Development
@@ -159,3 +210,8 @@ The code is formatted and checked with [ruff](https://docs.astral.sh/ruff/):
 uv run ruff format
 uv run ruff check
 ```
+
+## Licence
+
+[MIT](LICENSE). The fonts in `src/stereo_cam/default_fonts/` are under the SIL
+Open Font License, and each one's licence file sits next to it.
